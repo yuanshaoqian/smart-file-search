@@ -6,6 +6,9 @@ on:
       - 'v*'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
@@ -24,7 +27,6 @@ jobs:
         python -m pip install --upgrade pip
         pip install pyinstaller
         pip install PyQt6 whoosh python-docx openpyxl PyYAML loguru watchdog chardet
-        # 注意：不安装llama-cpp-python，模型将首次运行时下载
         
     - name: Build executable
       run: |
@@ -52,18 +54,19 @@ jobs:
           dist/SmartFileSearch-portable.zip
           
     - name: Create Release
+      uses: softprops/action-gh-release@v2
       if: startsWith(github.ref, 'refs/tags/')
-      uses: softprops/action-gh-release@v1
       with:
+        name: Smart File Search ${{ github.ref_name }}
         body: |
-          # Smart File Search v1.0.0
+          # Smart File Search ${{ github.ref_name }}
           
           ## 🚀 快速开始
           
           ### 安装版
           1. 下载 `SmartFileSearch.exe`
           2. 双击运行
-          3. 首次运行会提示下载AI模型（可选）
+          3. 开始使用！
           
           ### 便携版
           1. 下载 `SmartFileSearch-portable.zip`
@@ -73,14 +76,19 @@ jobs:
           ## 📦 功能特性
           
           - ✅ 快速文件索引
-          - ✅ AI自然语言搜索（首次运行时下载模型）
+          - ✅ 启动画面显示加载进度
+          - ✅ 多线程处理，界面流畅
           - ✅ 支持Word/Excel/TXT
           - ✅ PyQt6界面
-          - ✅ 多线程处理，界面流畅
+          
+          ## 📦 安装包信息
+          
+          - **大小**: 约 80MB（不含AI模型）
+          - **AI功能**: 可选，首次使用时下载模型
+          - **启动时间**: 2-3秒
           
           ## 💡 注意事项
           
-          - 安装包约 **30MB**（不含AI模型）
           - AI模型（1.7GB）将在首次使用AI功能时自动下载
           - 可选择不使用AI功能，仅使用快速文件搜索
           
