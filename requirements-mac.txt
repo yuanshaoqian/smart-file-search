@@ -1,0 +1,17 @@
+# requirements-mac.txt - Mac 专用依赖清单
+# 排除 llama-cpp-python，避免编译问题
+
+PyQt6>=6.5.0
+whoosh>=2.7.4
+python-docx>=0.8.11
+openpyxl>=3.1.2
+PyYAML>=6.0
+loguru>=0.7.0
+watchdog>=3.0.0
+chardet>=5.2.0
+
+# AI 功能可选（Mac 用户建议使用 conda 安装）
+# llama-cpp-python>=0.2.20
+
+# 打包工具（如需生成 exe）
+# pyinstaller>=6.0.0

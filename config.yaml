@@ -1,0 +1,167 @@
+# Smart File Search 配置文件
+# 所有路径支持 ~ 扩展（用户主目录）
+
+# 日志配置
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  file: "logs/app.log"
+  max_size: "10 MB"  # 日志文件最大大小
+  retention: 7  # 保留天数
+
+# 索引配置
+index:
+  # 要索引的目录列表（支持绝对路径或相对路径）
+  directories:
+    - "~/Documents"
+    - "~/Downloads"
+    - "~/Desktop"
+  
+  # 排除模式（支持通配符）
+  exclude_patterns:
+    - "*.tmp"
+    - "*.log"
+    - "*.cache"
+    - "*.pyc"
+    - "__pycache__"
+    - ".git"
+    - ".svn"
+    - ".DS_Store"
+    - "Thumbs.db"
+  
+  # 文件大小限制（字节）
+  max_file_size: 104857600  # 100MB
+  
+  # 支持的扩展名（小写）
+  supported_extensions:
+    - ".txt"
+    - ".md"
+    - ".py"
+    - ".java"
+    - ".cpp"
+    - ".h"
+    - ".json"
+    - ".xml"
+    - ".yml"
+    - ".yaml"
+    - ".docx"
+    - ".xlsx"
+    - ".pptx"  # 未来支持
+  
+  # 索引存储目录
+  index_dir: "data/indexdir"
+  
+  # 自动更新间隔（秒，0表示禁用）
+  update_interval: 300
+  
+  # 增量更新（只检查变更文件）
+  incremental: true
+
+# AI 配置（可选功能）
+ai:
+  # 是否启用 AI 功能
+  enabled: false
+  
+  # 模型路径（支持 GGUF 格式）
+  model_path: "data/models/phi-2.Q4_K_M.gguf"
+  
+  # 模型下载 URL（如果模型文件不存在，尝试从此处下载）
+  model_url: "https://huggingface.co/TheBloke/phi-2-GGUF/resolve/main/phi-2.Q4_K_M.gguf"
+  
+  # 上下文长度（token数）
+  context_size: 2048
+  
+  # 最大新生成 token 数
+  max_tokens: 512
+  
+  # 温度（控制随机性，0.0-1.0）
+  temperature: 0.1
+  
+  # 提示词模板
+  prompt_template: |
+    你是一个文件搜索助手，请根据以下文件内容回答问题。
+    
+    文件列表：
+    {file_context}
+    
+    用户问题：{question}
+    
+    请基于文件内容提供准确的回答。如果文件内容中没有相关信息，请如实说明。
+    
+    回答：
+
+# GUI 配置
+gui:
+  # 界面主题
+  theme: "dark"  # dark, light, system
+  
+  # 字体设置
+  font_family: "Microsoft YaHei, Segoe UI, sans-serif"
+  font_size: 12
+  
+  # 窗口尺寸
+  window_width: 1200
+  window_height: 800
+  
+  # 结果限制
+  max_results: 500
+  
+  # 预览设置
+  preview_max_lines: 20
+  preview_max_chars: 1000
+  
+  # 自动完成
+  autocomplete_enabled: true
+  autocomplete_max_items: 10
+  
+  # 侧边栏
+  sidebar_width: 250
+  sidebar_visible: true
+
+# 搜索配置
+search:
+  # 默认搜索字段
+  default_fields:
+    - "filename"
+    - "content"
+  
+  # 模糊搜索（允许编辑距离）
+  fuzzy_enabled: true
+  fuzzy_max_distance: 2
+  
+  # 通配符搜索
+  wildcard_enabled: true
+  
+  # 短语搜索（引号内作为短语）
+  phrase_enabled: true
+  
+  # 布尔运算符（AND, OR, NOT）
+  boolean_enabled: true
+
+# 高级配置
+advanced:
+  # 文件解析器线程数
+  parser_threads: 4
+  
+  # 索引器线程数
+  indexer_threads: 2
+  
+  # 缓存大小（MB）
+  cache_size_mb: 100
+  
+  # 监控文件系统变化（需要 watchdog）
+  watch_filesystem: true
+  
+  # 忽略隐藏文件
+  ignore_hidden: true
+  
+  # 跳过系统文件
+  skip_system_files: true
+
+# 用户界面语言
+language: "zh_CN"  # zh_CN, en_US
+
+# 更新检查
+update_check:
+  enabled: true
+  interval_days: 7
+  last_checked: null

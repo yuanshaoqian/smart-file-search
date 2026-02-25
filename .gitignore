@@ -1,0 +1,42 @@
+# 大文件（超过GitHub限制）
+*.tar.gz
+*.tar.gz.md5
+SmartFileSearch-*.zip
+
+# AI模型文件（通过GitHub Releases发布）
+data/models/*.gguf
+
+# Python缓存
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# 构建产物
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# 日志
+logs/
+*.log
+
+# 索引文件（运行时生成）
+data/indexdir/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 操作系统
+.DS_Store
+Thumbs.db
+
+# 临时文件
+*.tmp
+*.temp
+.cache/

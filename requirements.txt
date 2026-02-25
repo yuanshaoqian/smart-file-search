@@ -1,0 +1,22 @@
+# 核心依赖
+PyQt6>=6.5.0
+whoosh>=2.7.4
+python-docx>=1.1.0
+openpyxl>=3.1.2
+PyYAML>=6.0
+loguru>=0.7.2
+watchdog>=3.0.0
+
+# AI 功能（可选）
+llama-cpp-python>=0.2.23
+
+# 开发依赖（可选）
+pytest>=7.4.0
+black>=23.9.0
+flake8>=6.1.0
+pylint>=2.17.0
+
+# 其他工具
+chardet>=5.2.0  # 编码检测
+pandas>=2.0.0   # 数据处理（未来可能用到）
+python-magic>=0.4.27  # 文件类型检测
