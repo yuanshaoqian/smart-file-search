@@ -6,8 +6,8 @@
 """
 
 import sys
-from PyQt6.QtWidgets import QSplashScreen, QLabel, QVBoxLayout, QWidget
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtWidgets import QSplashScreen, QApplication
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap, QPainter, QColor, QFont
 
 
@@ -77,13 +77,12 @@ class SplashScreen(QSplashScreen):
         
         # 强制刷新
         self.repaint()
-        QApplication.processEvents()
+        if QApplication.instance():
+            QApplication.processEvents()
 
 
 def show_splash():
     """显示启动画面"""
-    from PyQt6.QtWidgets import QApplication
-    
     app = QApplication.instance()
     if app is None:
         app = QApplication(sys.argv)
@@ -95,8 +94,6 @@ def show_splash():
 
 
 if __name__ == "__main__":
-    from PyQt6.QtWidgets import QApplication
-    
     app = QApplication(sys.argv)
     splash = show_splash()
     
