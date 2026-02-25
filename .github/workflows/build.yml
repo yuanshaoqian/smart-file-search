@@ -1,4 +1,4 @@
-name: Build Windows Release
+name: Build Windows Release (Lightweight)
 
 on:
   push:
@@ -23,27 +23,23 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install pyinstaller
-        pip install -r requirements.txt
-        pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
-        
-    - name: Download AI model
-      run: |
-        New-Item -ItemType Directory -Force -Path data\models
-        Invoke-WebRequest -Uri "https://huggingface.co/TheBloke/phi-2-GGUF/resolve/main/phi-2.Q4_K_M.gguf" -OutFile "data\models\phi-2.Q4_K_M.gguf"
-      shell: pwsh
+        pip install PyQt6 whoosh python-docx openpyxl PyYAML loguru watchdog chardet
+        # 注意：不安装llama-cpp-python，模型将首次运行时下载
         
     - name: Build executable
       run: |
-        pyinstaller --clean --onefile --windowed --name SmartFileSearch src/main.py --add-data "data;data" --add-data "config.yaml;." --hidden-import PyQt6.QtCore --hidden-import PyQt6.QtGui --hidden-import PyQt6.QtWidgets --hidden-import whoosh --hidden-import docx --hidden-import openpyxl --hidden-import yaml --hidden-import loguru --hidden-import llama_cpp
+        pyinstaller --clean --onefile --windowed --name SmartFileSearch src/main.py --add-data "config.yaml;." --hidden-import PyQt6.QtCore --hidden-import PyQt6.QtGui --hidden-import PyQt6.QtWidgets --hidden-import whoosh --hidden-import docx --hidden-import openpyxl --hidden-import yaml --hidden-import loguru
         
     - name: Create portable package
       run: |
         New-Item -ItemType Directory -Force -Path dist\SmartFileSearch
         Copy-Item dist\SmartFileSearch.exe dist\SmartFileSearch\
-        Copy-Item -Recurse data dist\SmartFileSearch\
         Copy-Item config.yaml dist\SmartFileSearch\
         Copy-Item README.md dist\SmartFileSearch\
         Copy-Item start.bat dist\SmartFileSearch\
+        New-Item -ItemType Directory -Force -Path dist\SmartFileSearch\data\models
+        New-Item -ItemType Directory -Force -Path dist\SmartFileSearch\data\indexdir
+        New-Item -ItemType Directory -Force -Path dist\SmartFileSearch\logs
         Compress-Archive -Path dist\SmartFileSearch -DestinationPath dist\SmartFileSearch-portable.zip
       shell: pwsh
         
@@ -59,6 +55,40 @@ jobs:
       if: startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v1
       with:
+        body: |
+          # Smart File Search v1.0.0
+          
+          ## 🚀 快速开始
+          
+          ### 安装版
+          1. 下载 `SmartFileSearch.exe`
+          2. 双击运行
+          3. 首次运行会提示下载AI模型（可选）
+          
+          ### 便携版
+          1. 下载 `SmartFileSearch-portable.zip`
+          2. 解压到任意目录
+          3. 双击 `start.bat` 运行
+          
+          ## 📦 功能特性
+          
+          - ✅ 快速文件索引
+          - ✅ AI自然语言搜索（首次运行时下载模型）
+          - ✅ 支持Word/Excel/TXT
+          - ✅ PyQt6界面
+          - ✅ 多线程处理，界面流畅
+          
+          ## 💡 注意事项
+          
+          - 安装包约 **30MB**（不含AI模型）
+          - AI模型（1.7GB）将在首次使用AI功能时自动下载
+          - 可选择不使用AI功能，仅使用快速文件搜索
+          
+          ## 📚 文档
+          
+          - [使用说明](docs/USAGE.md)
+          - [配置指南](docs/QUICK_SETUP.md)
+          
         files: |
           dist/SmartFileSearch.exe
           dist/SmartFileSearch-portable.zip
