@@ -3,8 +3,8 @@ name: Build Windows Release
 on:
   push:
     tags:
-      - 'v*'  # 当推送 v 开头的标签时触发
-  workflow_dispatch:  # 允许手动触发
+      - 'v*'
+  workflow_dispatch:
 
 jobs:
   build:
@@ -28,33 +28,31 @@ jobs:
         
     - name: Download AI model
       run: |
-        mkdir -p data/models
-        curl -L -o data/models/phi-2.Q4_K_M.gguf https://huggingface.co/TheBloke/phi-2-GGUF/resolve/main/phi-2.Q4_K_M.gguf
+        New-Item -ItemType Directory -Force -Path data\models
+        Invoke-WebRequest -Uri "https://huggingface.co/TheBloke/phi-2-GGUF/resolve/main/phi-2.Q4_K_M.gguf" -OutFile "data\models\phi-2.Q4_K_M.gguf"
+      shell: pwsh
         
     - name: Build executable
       run: |
-        pyinstaller --clean build.spec
+        pyinstaller --clean --onefile --windowed --name SmartFileSearch src/main.py --add-data "data;data" --add-data "config.yaml;." --hidden-import PyQt6.QtCore --hidden-import PyQt6.QtGui --hidden-import PyQt6.QtWidgets --hidden-import whoosh --hidden-import docx --hidden-import openpyxl --hidden-import yaml --hidden-import loguru --hidden-import llama_cpp
         
     - name: Create portable package
       run: |
-        mkdir -p dist/SmartFileSearch
-        cp -r dist/SmartFileSearch.exe dist/SmartFileSearch/
-        cp -r data dist/SmartFileSearch/
-        cp -r config.yaml dist/SmartFileSearch/
-        cp -r README.md dist/SmartFileSearch/
-        cp -r start.bat dist/SmartFileSearch/
-        
-    - name: Create installer
-      uses: joncloud/makensis-action@v4
-      with:
-        script-file: installer.nsi
+        New-Item -ItemType Directory -Force -Path dist\SmartFileSearch
+        Copy-Item dist\SmartFileSearch.exe dist\SmartFileSearch\
+        Copy-Item -Recurse data dist\SmartFileSearch\
+        Copy-Item config.yaml dist\SmartFileSearch\
+        Copy-Item README.md dist\SmartFileSearch\
+        Copy-Item start.bat dist\SmartFileSearch\
+        Compress-Archive -Path dist\SmartFileSearch -DestinationPath dist\SmartFileSearch-portable.zip
+      shell: pwsh
         
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
         name: SmartFileSearch-Windows
         path: |
-          dist/SmartFileSearch-Setup.exe
+          dist/SmartFileSearch.exe
           dist/SmartFileSearch-portable.zip
           
     - name: Create Release
@@ -62,7 +60,7 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          dist/SmartFileSearch-Setup.exe
+          dist/SmartFileSearch.exe
           dist/SmartFileSearch-portable.zip
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
