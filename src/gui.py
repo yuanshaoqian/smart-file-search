@@ -800,14 +800,223 @@ class MainWindow(QMainWindow):
     def update_status(self):
         """更新状态"""
         # 更新索引信息
-        if self.indexer:
-            count = self.indexer.get_file_count()
-            self.index_info_label.setText(f"索引: {count} 个文件")
+        if self.indexer and hasattr(self.indexer, 'get_file_count'):
+            try:
+                count = self.indexer.get_file_count()
+                self.index_info_label.setText(f"索引: {count} 个文件")
+            except Exception as e:
+                self.logger.error(f"获取文件数量失败: {e}")
+                self.index_info_label.setText("索引: 未知")
+        else:
+            self.index_info_label.setText("索引: 未初始化")
         
         # 更新 AI 状态
         if self.ai_engine and self.ai_engine.is_enabled():
             self.ai_status_label.setText("AI: 启用")
             self.ai_btn.setEnabled(True)
+        else:
+            self.ai_status_label.setText("AI: 禁用")
+            self.ai_btn.setEnabled(False)
+    def update_status(self):
+        """更新状态"""
+        # 更新索引信息
+        if self.indexer and hasattr(self.indexer, 'get_file_count'):
+            try:
+                count = self.indexer.get_file_count()
+                self.index_info_label.setText(f"索引: {count} 个文件")
+            except Exception as e:
+                self.logger.error(f"获取文件数量失败: {e}")
+                self.index_info_label.setText("索引: 未知")
+        else:
+            self.index_info_label.setText("索引: 未初始化")
+        
+        # 更新 AI 状态
+        if self.ai_engine and self.ai_engine.is_enabled():
+            self.ai_status_label.setText("AI: 启用")
+            self.ai_btn.setEnabled(True)
+        else:
+            self.ai_status_label.setText("AI: 禁用")
+            self.ai_btn.setEnabled(False)
+    def update_status(self):
+        """更新状态"""
+        # 更新索引信息
+        if self.indexer and hasattr(self.indexer, 'get_file_count'):
+            try:
+                count = self.indexer.get_file_count()
+                self.index_info_label.setText(f"索引: {count} 个文件")
+            except Exception as e:
+                self.logger.error(f"获取文件数量失败: {e}")
+                self.index_info_label.setText("索引: 未知")
+        else:
+            self.index_info_label.setText("索引: 未初始化")
+        
+        # 更新 AI 状态
+        if self.ai_engine and self.ai_engine.is_enabled():
+            self.ai_status_label.setText("AI: 启用")
+            self.ai_btn.setEnabled(True)
+        else:
+            self.ai_status_label.setText("AI: 禁用")
+            self.ai_btn.setEnabled(False)
+    def update_status(self):
+        """更新状态"""
+        # 更新索引信息
+        if self.indexer and hasattr(self.indexer, 'get_file_count'):
+            try:
+                count = self.indexer.get_file_count()
+                self.index_info_label.setText(f"索引: {count} 个文件")
+            except Exception as e:
+                self.logger.error(f"获取文件数量失败: {e}")
+                self.index_info_label.setText("索引: 未知")
+        else:
+            self.index_info_label.setText("索引: 未初始化")
+        
+        # 更新 AI 状态
+        if self.ai_engine and self.ai_engine.is_enabled():
+            self.ai_status_label.setText("AI: 启用")
+            self.ai_btn.setEnabled(True)
+        else:
+            self.ai_status_label.setText("AI: 禁用")
+            self.ai_btn.setEnabled(False)
+    def update_status(self):
+        """更新状态"""
+        # 更新索引信息
+        if self.indexer and hasattr(self.indexer, 'get_file_count'):
+            try:
+                count = self.indexer.get_file_count()
+                self.index_info_label.setText(f"索引: {count} 个文件")
+            except Exception as e:
+                self.logger.error(f"获取文件数量失败: {e}")
+                self.index_info_label.setText("索引: 未知")
+        else:
+            self.index_info_label.setText("索引: 未初始化")
+        
+        # 更新 AI 状态
+        if self.ai_engine and self.ai_engine.is_enabled():
+            self.ai_status_label.setText("AI: 启用")
+            self.ai_btn.setEnabled(True)
+        else:
+            self.ai_status_label.setText("AI: 禁用")
+            self.ai_btn.setEnabled(False)
+    def update_status(self):
+        """更新状态"""
+        # 更新索引信息
+        if self.indexer and hasattr(self.indexer, 'get_file_count'):
+            try:
+                count = self.indexer.get_file_count()
+                self.index_info_label.setText(f"索引: {count} 个文件")
+            except Exception as e:
+                self.logger.error(f"获取文件数量失败: {e}")
+                self.index_info_label.setText("索引: 未知")
+        else:
+            self.index_info_label.setText("索引: 未初始化")
+        
+        # 更新 AI 状态
+        if self.ai_engine and self.ai_engine.is_enabled():
+            self.ai_status_label.setText("AI: 启用")
+            self.ai_btn.setEnabled(True)
+        else:
+            self.ai_status_label.setText("AI: 禁用")
+            self.ai_btn.setEnabled(False)
+    def update_status(self):
+        """更新状态"""
+        # 更新索引信息
+        if self.indexer and hasattr(self.indexer, 'get_file_count'):
+            try:
+                count = self.indexer.get_file_count()
+                self.index_info_label.setText(f"索引: {count} 个文件")
+            except Exception as e:
+                self.logger.error(f"获取文件数量失败: {e}")
+                self.index_info_label.setText("索引: 未知")
+        else:
+            self.index_info_label.setText("索引: 未初始化")
+        
+        # 更新 AI 状态
+        if self.ai_engine and self.ai_engine.is_enabled():
+            self.ai_status_label.setText("AI: 启用")
+            self.ai_btn.setEnabled(True)
+        else:
+            self.ai_status_label.setText("AI: 禁用")
+            self.ai_btn.setEnabled(False)
+    def update_status(self):
+        """更新状态"""
+        # 更新索引信息
+        if self.indexer and hasattr(self.indexer, 'get_file_count'):
+            try:
+                count = self.indexer.get_file_count()
+                self.index_info_label.setText(f"索引: {count} 个文件")
+            except Exception as e:
+                self.logger.error(f"获取文件数量失败: {e}")
+                self.index_info_label.setText("索引: 未知")
+        else:
+            self.index_info_label.setText("索引: 未初始化")
+        
+        # 更新 AI 状态
+        if self.ai_engine and self.ai_engine.is_enabled():
+            self.ai_status_label.setText("AI: 启用")
+            self.ai_btn.setEnabled(True)
+        else:
+            self.ai_status_label.setText("AI: 禁用")
+            self.ai_btn.setEnabled(False)
+    def update_status(self):
+        """更新状态"""
+        # 更新索引信息
+        if self.indexer and hasattr(self.indexer, 'get_file_count'):
+            try:
+                count = self.indexer.get_file_count()
+                self.index_info_label.setText(f"索引: {count} 个文件")
+            except Exception as e:
+                self.logger.error(f"获取文件数量失败: {e}")
+                self.index_info_label.setText("索引: 未知")
+        else:
+            self.index_info_label.setText("索引: 未初始化")
+        
+        # 更新 AI 状态
+        if self.ai_engine and self.ai_engine.is_enabled():
+            self.ai_status_label.setText("AI: 启用")
+            self.ai_btn.setEnabled(True)
+        else:
+            self.ai_status_label.setText("AI: 禁用")
+            self.ai_btn.setEnabled(False)
+    def update_status(self):
+        """更新状态"""
+        # 更新索引信息
+        if self.indexer and hasattr(self.indexer, 'get_file_count'):
+            try:
+                count = self.indexer.get_file_count()
+                self.index_info_label.setText(f"索引: {count} 个文件")
+            except Exception as e:
+                self.logger.error(f"获取文件数量失败: {e}")
+                self.index_info_label.setText("索引: 未知")
+        else:
+            self.index_info_label.setText("索引: 未初始化")
+        
+        # 更新 AI 状态
+        if self.ai_engine and self.ai_engine.is_enabled():
+            self.ai_status_label.setText("AI: 启用")
+            self.ai_btn.setEnabled(True)
+        else:
+            self.ai_status_label.setText("AI: 禁用")
+            self.ai_btn.setEnabled(False)
+    def update_status(self):
+        """更新状态"""
+        # 更新索引信息
+        if self.indexer and hasattr(self.indexer, 'get_file_count'):
+            try:
+                count = self.indexer.get_file_count()
+                self.index_info_label.setText(f"索引: {count} 个文件")
+            except Exception as e:
+                self.logger.error(f"获取文件数量失败: {e}")
+                self.index_info_label.setText("索引: 未知")
+        else:
+            self.index_info_label.setText("索引: 未初始化")
+        
+        # 更新 AI 状态
+        if self.ai_engine and self.ai_engine.is_enabled():
+            self.ai_status_label.setText("AI: 启用")
+            self.ai_btn.setEnabled(True)
+        else:
+            self.ai_status_label.setText("AI: 禁用")
+            self.ai_btn.setEnabled(False)
         else:
             self.ai_status_label.setText("AI: 禁用")
             self.ai_btn.setEnabled(False)

@@ -32,26 +32,55 @@ jobs:
       run: |
         pyinstaller --clean --onefile --windowed --name SmartFileSearch src/main.py --add-data "config.yaml;." --hidden-import PyQt6.QtCore --hidden-import PyQt6.QtGui --hidden-import PyQt6.QtWidgets --hidden-import whoosh --hidden-import docx --hidden-import openpyxl --hidden-import yaml --hidden-import loguru
         
-    - name: Create portable package
+    - name: Create portable version (without AI model)
       run: |
-        New-Item -ItemType Directory -Force -Path dist\SmartFileSearch
-        Copy-Item dist\SmartFileSearch.exe dist\SmartFileSearch\
-        Copy-Item config.yaml dist\SmartFileSearch\
-        Copy-Item README.md dist\SmartFileSearch\
-        Copy-Item start.bat dist\SmartFileSearch\
-        New-Item -ItemType Directory -Force -Path dist\SmartFileSearch\data\models
-        New-Item -ItemType Directory -Force -Path dist\SmartFileSearch\data\indexdir
-        New-Item -ItemType Directory -Force -Path dist\SmartFileSearch\logs
-        Compress-Archive -Path dist\SmartFileSearch -DestinationPath dist\SmartFileSearch-portable.zip
+        # 创建便携版目录结构
+        New-Item -ItemType Directory -Force -Path dist\SmartFileSearch-Portable
+        Copy-Item dist\SmartFileSearch.exe dist\SmartFileSearch-Portable\
+        Copy-Item config.yaml dist\SmartFileSearch-Portable\
+        Copy-Item README.md dist\SmartFileSearch-Portable\
+        Copy-Item start.bat dist\SmartFileSearch-Portable\
+        New-Item -ItemType Directory -Force -Path dist\SmartFileSearch-Portable\data\models
+        New-Item -ItemType Directory -Force -Path dist\SmartFileSearch-Portable\data\indexdir
+        New-Item -ItemType Directory -Force -Path dist\SmartFileSearch-Portable\logs
+        
+        # 创建说明文件
+        Set-Content -Path "dist\SmartFileSearch-Portable\使用说明.txt" -Value "Smart File Search 便携版`n`n使用方法：`n1. 双击 start.bat 启动程序`n2. AI模型将在首次使用AI功能时自动下载`n3. 所有数据保存在本目录中`n`n特点：`n- 无需安装，解压即用`n- 约80MB（不含AI模型）`n- AI模型按需下载（约1.7GB）"
+        
+        # 打包便携版
+        Compress-Archive -Path dist\SmartFileSearch-Portable -DestinationPath dist\SmartFileSearch-Portable.zip
       shell: pwsh
         
-    - name: Upload artifact
+    - name: Create full version (with AI model)
+      run: |
+        # 下载AI模型
+        Write-Host "正在下载AI模型..."
+        New-Item -ItemType Directory -Force -Path data\models
+        Invoke-WebRequest -Uri "https://huggingface.co/TheBloke/phi-2-GGUF/resolve/main/phi-2.Q4_K_M.gguf" -OutFile "data\models\phi-2.Q4_K_M.gguf"
+        
+        # 创建完整版目录结构
+        New-Item -ItemType Directory -Force -Path dist\SmartFileSearch-Full
+        Copy-Item dist\SmartFileSearch.exe dist\SmartFileSearch-Full\
+        Copy-Item -Recurse data dist\SmartFileSearch-Full\
+        Copy-Item config.yaml dist\SmartFileSearch-Full\
+        Copy-Item README.md dist\SmartFileSearch-Full\
+        Copy-Item start.bat dist\SmartFileSearch-Full\
+        
+        # 创建说明文件
+        Set-Content -Path "dist\SmartFileSearch-Full\使用说明.txt" -Value "Smart File Search 完整版`n`n使用方法：`n1. 双击 start.bat 启动程序`n2. AI模型已包含，可直接使用AI功能`n`n特点：`n- 无需安装，解压即用`n- 包含AI模型（约1.8GB）`n- AI功能立即可用"
+        
+        # 打包完整版
+        Compress-Archive -Path dist\SmartFileSearch-Full -DestinationPath dist\SmartFileSearch-Full.zip
+      shell: pwsh
+        
+    - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
         name: SmartFileSearch-Windows
         path: |
           dist/SmartFileSearch.exe
-          dist/SmartFileSearch-portable.zip
+          dist/SmartFileSearch-Portable.zip
+          dist/SmartFileSearch-Full.zip
           
     - name: Create Release
       uses: softprops/action-gh-release@v2
@@ -61,44 +90,76 @@ jobs:
         body: |
           # Smart File Search ${{ github.ref_name }}
           
+          ## 📦 下载选项
+          
+          ### 🚀 便携版（推荐）
+          - **文件**: `SmartFileSearch-Portable.zip`
+          - **大小**: 约 80MB
+          - **特点**: 
+            - 无需安装，解压即用
+            - AI模型按需下载（首次使用AI功能时）
+            - 适合低配置电脑
+          
+          ### 📦 完整版
+          - **文件**: `SmartFileSearch-Full.zip`
+          - **大小**: 约 1.8GB
+          - **特点**:
+            - 包含AI模型
+            - AI功能立即可用
+            - 适合高配置电脑
+          
+          ### ⚡ 单文件版
+          - **文件**: `SmartFileSearch.exe`
+          - **大小**: 约 80MB
+          - **特点**:
+            - 单个可执行文件
+            - 需要手动配置
+            - 适合高级用户
+          
           ## 🚀 快速开始
           
-          ### 安装版
-          1. 下载 `SmartFileSearch.exe`
-          2. 双击运行
-          3. 开始使用！
-          
-          ### 便携版
-          1. 下载 `SmartFileSearch-portable.zip`
+          ### 便携版/完整版使用方法
+          1. 下载对应的 zip 文件
           2. 解压到任意目录
           3. 双击 `start.bat` 运行
           
+          ### 单文件版使用方法
+          1. 下载 `SmartFileSearch.exe`
+          2. 双击运行
+          3. 首次运行会自动创建必要目录
+          
           ## 📦 功能特性
           
-          - ✅ 快速文件索引
+          - ✅ 快速文件索引（Whoosh）
           - ✅ 启动画面显示加载进度
           - ✅ 多线程处理，界面流畅
           - ✅ 支持Word/Excel/TXT
-          - ✅ PyQt6界面
+          - ✅ PyQt6现代化界面
+          - ✅ AI自然语言搜索（可选）
           
-          ## 📦 安装包信息
+          ## 💡 版本区别
           
-          - **大小**: 约 80MB（不含AI模型）
-          - **AI功能**: 可选，首次使用时下载模型
-          - **启动时间**: 2-3秒
+          | 版本 | 大小 | AI模型 | 适用场景 |
+          |------|------|--------|---------|
+          | 便携版 | 80MB | 按需下载 | 低配置、快速试用 |
+          | 完整版 | 1.8GB | 已包含 | 高配置、离线使用 |
+          | 单文件 | 80MB | 按需下载 | 高级用户 |
           
-          ## 💡 注意事项
+          ## ⚙️ 系统要求
           
-          - AI模型（1.7GB）将在首次使用AI功能时自动下载
-          - 可选择不使用AI功能，仅使用快速文件搜索
+          - **操作系统**: Windows 10/11
+          - **内存**: 4GB（无AI）/ 8GB（有AI）
+          - **磁盘空间**: 100MB（无AI）/ 2GB（有AI）
           
           ## 📚 文档
           
           - [使用说明](docs/USAGE.md)
           - [配置指南](docs/QUICK_SETUP.md)
+          - [低配置优化](docs/LOW_SPEC_GUIDE.md)
           
         files: |
           dist/SmartFileSearch.exe
-          dist/SmartFileSearch-portable.zip
+          dist/SmartFileSearch-Portable.zip
+          dist/SmartFileSearch-Full.zip
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

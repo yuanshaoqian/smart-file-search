@@ -23,6 +23,7 @@ from src.splash import SplashScreen
 # 导入主窗口
 from src.gui import MainWindow
 from src.config import get_config
+from src.index import FileIndexer
 
 
 def main():
@@ -50,15 +51,21 @@ def main():
         app.processEvents()
         config = get_config()
         
+        # 初始化搜索引擎
+        splash.showMessage("初始化搜索引擎...")
+        app.processEvents()
+        
+        # 创建索引器
+        indexer = FileIndexer(
+            index_dir=Path(config.index.index_dir).expanduser(),
+            supported_extensions=config.index.supported_extensions
+        )
+        
         # 初始化主窗口
         splash.showMessage("初始化界面...")
         app.processEvents()
         
-        window = MainWindow(config)
-        
-        # 初始化搜索引擎
-        splash.showMessage("初始化搜索引擎...")
-        app.processEvents()
+        window = MainWindow(indexer=indexer, config=config)
         
         # 延迟加载AI（如果启用）
         if config.ai.enabled:
