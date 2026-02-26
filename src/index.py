@@ -164,43 +164,47 @@ class FileIndexer:
     def _index_file(self, file_path: str) -> Optional[Dict[str, Any]]:
         """
         索引单个文件
-        
+
         Args:
             file_path: 文件路径
-            
+
         Returns:
             索引文档字典，如果失败则返回 None
         """
-        if not self._should_index(file_path):
+        try:
+            if not self._should_index(file_path):
+                return None
+
+            # 获取文件元数据
+            metadata = FileMetadata.from_path(file_path)
+            if metadata is None:
+                return None
+
+            # 解析文件内容
+            content = self.parser.parse(file_path)
+            if content is None:
+                # 仍然索引元数据，但没有内容
+                content = ""
+
+            metadata.content = content
+            metadata.checksum = metadata.calculate_checksum(content)
+
+            # 转换为索引文档
+            doc = {
+                'path': metadata.path,
+                'filename': metadata.filename,
+                'extension': metadata.extension,
+                'size': metadata.size,
+                'modified': metadata.modified,
+                'created': metadata.created,
+                'content': content,
+                'checksum': metadata.checksum,
+            }
+
+            return doc
+        except Exception as e:
+            self.logger.warning(f"索引文件时出错 {file_path}: {e}")
             return None
-        
-        # 获取文件元数据
-        metadata = FileMetadata.from_path(file_path)
-        if metadata is None:
-            return None
-        
-        # 解析文件内容
-        content = self.parser.parse(file_path)
-        if content is None:
-            # 仍然索引元数据，但没有内容
-            content = ""
-        
-        metadata.content = content
-        metadata.checksum = metadata.calculate_checksum(content)
-        
-        # 转换为索引文档
-        doc = {
-            'path': metadata.path,
-            'filename': metadata.filename,
-            'extension': metadata.extension,
-            'size': metadata.size,
-            'modified': metadata.modified,
-            'created': metadata.created,
-            'content': content,
-            'checksum': metadata.checksum,
-        }
-        
-        return doc
     
     def create_index(self, root_paths: List[str], incremental: bool = False, progress_callback=None) -> Dict[str, Any]:
         """
@@ -215,6 +219,22 @@ class FileIndexer:
         Returns:
             统计信息
         """
+        # 验证索引目录是否与配置一致
+        config_dirs = [str(Path(d).expanduser().resolve()) for d in self.config.index.directories]
+        input_dirs = [str(Path(d).expanduser().resolve()) for d in root_paths]
+
+        # 检查是否所有配置的目录都被包含
+        missing_dirs = set(config_dirs) - set(input_dirs)
+        extra_dirs = set(input_dirs) - set(config_dirs)
+
+        if missing_dirs:
+            self.logger.warning(f"配置中的目录未被索引: {missing_dirs}")
+        if extra_dirs:
+            self.logger.warning(f"索引用包含了非配置目录: {extra_dirs}")
+
+        # 使用配置中的目录
+        validated_dirs = config_dirs
+
         stats = {
             'total_files': 0,
             'indexed_files': 0,
@@ -222,11 +242,11 @@ class FileIndexer:
             'failed_files': 0,
             'start_time': time.time(),
             'end_time': None,
-            'directories': root_paths,
+            'directories': validated_dirs,
             'cancelled': False,
         }
 
-        self.logger.info(f"开始{'增量' if incremental else '全量'}索引: {root_paths}")
+        self.logger.info(f"开始{'增量' if incremental else '全量'}索引: {validated_dirs}")
 
         def check_cancel():
             """检查是否应该取消"""
@@ -243,21 +263,25 @@ class FileIndexer:
                 return stats
 
         all_files = []
-        for root_path in root_paths:
+        for root_path in validated_dirs:
             root = Path(root_path).expanduser().resolve()
             if not root.exists():
                 self.logger.warning(f"目录不存在: {root}")
                 continue
 
-            for file_path in root.rglob('*'):
-                if file_path.is_file():
-                    all_files.append(str(file_path))
-                    # 报告扫描进度
-                    if progress_callback and len(all_files) % 50 == 0:
-                        result = progress_callback(0, len(all_files), str(file_path), "正在扫描文件...")
-                        if result is False:
-                            stats['cancelled'] = True
-                            return stats
+            try:
+                for file_path in root.rglob('*'):
+                    if file_path.is_file():
+                        all_files.append(str(file_path))
+                        # 报告扫描进度
+                        if progress_callback and len(all_files) % 50 == 0:
+                            result = progress_callback(0, len(all_files), str(file_path), "正在扫描文件...")
+                            if result is False:
+                                stats['cancelled'] = True
+                                return stats
+            except Exception as e:
+                self.logger.error(f"扫描目录失败 {root}: {e}")
+                continue
 
         stats['total_files'] = len(all_files)
         self.logger.info(f"找到 {stats['total_files']} 个文件")
@@ -283,39 +307,67 @@ class FileIndexer:
                 return stats
 
         # 使用线程池并行处理文件
-        writer = AsyncWriter(self.ix)
+        # 批量提交大小（每N个文件提交一次，避免内存问题）
+        BATCH_SIZE = 200
+
+        writer = None
+        batch_count = 0
         futures = {}
         completed_count = 0
+        pending_docs = []  # 待提交的文档
 
-        for file_path in files_to_index:
-            future = self.executor.submit(self._index_file, file_path)
-            futures[future] = file_path
+        try:
+            writer = AsyncWriter(self.ix)
 
-        # 处理结果
-        for future in as_completed(futures):
-            file_path = futures[future]
+            for file_path in files_to_index:
+                future = self.executor.submit(self._index_file, file_path)
+                futures[future] = file_path
 
-            # 检查是否取消
-            if check_cancel():
-                # 取消未完成的任务
-                for f in futures:
-                    if not f.done():
-                        f.cancel()
-                stats['cancelled'] = True
-                break
+            # 处理结果
+            for future in as_completed(futures):
+                file_path = futures[future]
 
-            try:
-                doc = future.result(timeout=30)
-                if doc:
-                    # 删除旧记录（如果存在）
-                    writer.delete_by_term('path', doc['path'])
-                    # 添加新记录
-                    writer.add_document(**doc)
-                    stats['indexed_files'] += 1
+                # 检查是否取消
+                if check_cancel():
+                    # 取消未完成的任务
+                    for f in futures:
+                        if not f.done():
+                            f.cancel()
+                    stats['cancelled'] = True
+                    break
 
-                    # 报告进度
+                try:
+                    doc = future.result(timeout=30)
+                    if doc:
+                        pending_docs.append(doc)
+                        stats['indexed_files'] += 1
+                    else:
+                        stats['skipped_files'] += 1
+
                     completed_count += 1
-                    if progress_callback and completed_count % 10 == 0:
+
+                    # 批量提交
+                    if len(pending_docs) >= BATCH_SIZE:
+                        for doc in pending_docs:
+                            writer.delete_by_term('path', doc['path'])
+                            writer.add_document(**doc)
+                        pending_docs.clear()
+                        batch_count += 1
+
+                        if progress_callback:
+                            result = progress_callback(
+                                completed_count,
+                                files_to_process,
+                                file_path,
+                                f"已索引 {completed_count}/{files_to_process} 个文件 (批次{batch_count})"
+                            )
+                            if result is False:
+                                for f in futures:
+                                    if not f.done():
+                                        f.cancel()
+                                stats['cancelled'] = True
+                                break
+                    elif progress_callback and completed_count % 10 == 0:
                         result = progress_callback(
                             completed_count,
                             files_to_process,
@@ -323,35 +375,50 @@ class FileIndexer:
                             f"已索引 {completed_count}/{files_to_process} 个文件"
                         )
                         if result is False:
-                            # 取消未完成的任务
                             for f in futures:
                                 if not f.done():
                                     f.cancel()
                             stats['cancelled'] = True
                             break
-                else:
-                    stats['skipped_files'] += 1
+
+                except Exception as e:
+                    self.logger.error(f"索引文件失败 {file_path}: {e}")
+                    stats['failed_files'] += 1
                     completed_count += 1
 
-            except Exception as e:
-                self.logger.error(f"索引文件失败 {file_path}: {e}")
-                stats['failed_files'] += 1
-                completed_count += 1
+                    # 报告错误
+                    if progress_callback:
+                        progress_callback(
+                            completed_count,
+                            files_to_process,
+                            file_path,
+                            f"索引失败: {Path(file_path).name}"
+                        )
 
-                # 报告错误
+            # 提交剩余的文档
+            if not stats['cancelled'] and pending_docs:
                 if progress_callback:
-                    progress_callback(
-                        completed_count,
-                        files_to_process,
-                        file_path,
-                        f"索引失败: {Path(file_path).name}"
-                    )
+                    progress_callback(files_to_process, files_to_process, "", "正在提交最后批次...")
+                for doc in pending_docs:
+                    writer.delete_by_term('path', doc['path'])
+                    writer.add_document(**doc)
+                pending_docs.clear()
 
-        # 提交更改（只有未取消时才提交）
-        if not stats['cancelled']:
-            if progress_callback:
-                progress_callback(files_to_process, files_to_process, "", "正在提交索引...")
-            writer.commit()
+            # 提交更改（只有未取消时才提交）
+            if not stats['cancelled']:
+                if progress_callback:
+                    progress_callback(files_to_process, files_to_process, "", "正在保存索引...")
+                writer.commit()
+
+        except Exception as e:
+            self.logger.error(f"索引过程发生错误: {e}")
+            # 取消writer
+            if writer:
+                try:
+                    writer.cancel()
+                except:
+                    pass
+            raise
 
         stats['end_time'] = time.time()
         stats['duration'] = stats['end_time'] - stats['start_time']
@@ -372,44 +439,60 @@ class FileIndexer:
     def _get_changed_files(self, all_files: List[str]) -> List[str]:
         """
         获取需要更新的文件列表（增量更新）
-        
+
         Args:
             all_files: 所有文件路径列表
-            
+
         Returns:
             需要更新的文件列表
         """
         changed_files = []
-        
-        with self.ix.searcher() as searcher:
-            for file_path in all_files:
-                # 检查文件是否存在
-                if not Path(file_path).exists():
-                    continue
-                
-                # 获取当前文件信息
-                metadata = FileMetadata.from_path(file_path)
-                if metadata is None:
-                    changed_files.append(file_path)
-                    continue
-                
-                # 检查是否已索引
-                results = searcher.search(Term('path', metadata.path), limit=1)
-                if len(results) == 0:
-                    # 新文件
-                    changed_files.append(file_path)
-                else:
-                    # 检查文件是否变化
-                    stored_doc = results[0]
-                    stored_checksum = stored_doc.get('checksum', '')
-                    
-                    # 计算当前校验和
-                    content = self.parser.parse(file_path) or ""
-                    current_checksum = metadata.calculate_checksum(content)
-                    
-                    if stored_checksum != current_checksum:
+
+        try:
+            with self.ix.searcher() as searcher:
+                for file_path in all_files:
+                    try:
+                        # 检查文件是否存在
+                        if not Path(file_path).exists():
+                            continue
+
+                        # 获取当前文件信息
+                        metadata = FileMetadata.from_path(file_path)
+                        if metadata is None:
+                            changed_files.append(file_path)
+                            continue
+
+                        # 检查是否已索引
+                        results = searcher.search(Term('path', metadata.path), limit=1)
+                        if len(results) == 0:
+                            # 新文件
+                            changed_files.append(file_path)
+                        else:
+                            # 检查文件是否变化
+                            stored_doc = results[0]
+                            stored_checksum = stored_doc.get('checksum', '')
+
+                            # 计算当前校验和
+                            try:
+                                content = self.parser.parse(file_path) or ""
+                            except Exception as e:
+                                self.logger.warning(f"解析文件失败 {file_path}: {e}")
+                                changed_files.append(file_path)
+                                continue
+
+                            current_checksum = metadata.calculate_checksum(content)
+
+                            if stored_checksum != current_checksum:
+                                changed_files.append(file_path)
+                    except Exception as e:
+                        self.logger.warning(f"检查文件变化失败 {file_path}: {e}")
                         changed_files.append(file_path)
-        
+                        continue
+        except Exception as e:
+            self.logger.error(f"获取变化文件列表失败: {e}")
+            # 如果检查失败，返回所有文件
+            return all_files
+
         return changed_files
     
     def search(self, query_str: str, limit: int = 100, filters: Optional[Dict] = None) -> List[Dict[str, Any]]:

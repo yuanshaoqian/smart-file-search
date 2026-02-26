@@ -1318,6 +1318,9 @@ class MainWindow(QMainWindow):
         self.worker.progress.connect(
             lambda curr, total, fname, status: progress_dialog.update_progress(curr, total, fname, status)
         )
+        self.worker.stats_update.connect(
+            lambda indexed, skipped, failed: progress_dialog.update_stats(indexed, skipped, failed)
+        )
         self.worker.finished.connect(lambda stats: self._on_index_complete(stats, progress_dialog))
         self.worker.error.connect(lambda err: self._on_index_error(err, progress_dialog))
 
