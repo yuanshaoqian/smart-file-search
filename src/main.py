@@ -72,11 +72,9 @@ def main():
         splash.showMessage("初始化搜索引擎...")
         app.processEvents()
         
-        # 创建索引器
-        indexer = FileIndexer(
-            index_dir=Path(config.index.index_dir).expanduser(),
-            supported_extensions=config.index.supported_extensions
-        )
+        # 创建索引器（使用正确的参数）
+        index_dir = str(Path(config.index.index_dir).expanduser())
+        indexer = FileIndexer(index_dir=index_dir, config=config)
         
         # 初始化主窗口
         splash.showMessage("初始化界面...")
