@@ -308,7 +308,8 @@ class FileIndexer:
 
         # 使用线程池并行处理文件
         # 批量提交大小（每N个文件提交一次，避免内存问题）
-        BATCH_SIZE = 200
+        # 降低到50以防止内存溢出导致的闪退
+        BATCH_SIZE = 50
 
         writer = None
         batch_count = 0
@@ -318,6 +319,7 @@ class FileIndexer:
 
         try:
             writer = AsyncWriter(self.ix)
+            self.logger.info(f"开始索引 {files_to_process} 个文件，批量大小: {BATCH_SIZE}")
 
             for file_path in files_to_index:
                 future = self.executor.submit(self._index_file, file_path)
@@ -346,13 +348,42 @@ class FileIndexer:
 
                     completed_count += 1
 
-                    # 批量提交
+                    # 批量提交（每批次提交一次，而不是等所有文件完成）
                     if len(pending_docs) >= BATCH_SIZE:
-                        for doc in pending_docs:
-                            writer.delete_by_term('path', doc['path'])
-                            writer.add_document(**doc)
-                        pending_docs.clear()
                         batch_count += 1
+                        self.logger.info(f"开始提交批次 {batch_count} ({len(pending_docs)} 个文件)...")
+
+                        if progress_callback:
+                            progress_callback(
+                                completed_count,
+                                files_to_process,
+                                file_path,
+                                f"正在提交批次 {batch_count}..."
+                            )
+
+                        try:
+                            # 删除旧记录并添加新记录
+                            for doc in pending_docs:
+                                writer.delete_by_term('path', doc['path'])
+                                writer.add_document(**doc)
+
+                            # 立即提交这个批次
+                            writer.commit()
+                            self.logger.info(f"批次 {batch_count} 提交成功")
+
+                            # 创建新的writer用于下一批次
+                            writer = AsyncWriter(self.ix)
+                            pending_docs.clear()
+
+                        except Exception as e:
+                            self.logger.error(f"批次 {batch_count} 提交失败: {e}")
+                            stats['failed_files'] += len(pending_docs)
+                            pending_docs.clear()
+                            # 创建新的writer继续处理
+                            try:
+                                writer = AsyncWriter(self.ix)
+                            except:
+                                pass
 
                         if progress_callback:
                             result = progress_callback(
@@ -383,6 +414,8 @@ class FileIndexer:
 
                 except Exception as e:
                     self.logger.error(f"索引文件失败 {file_path}: {e}")
+                    import traceback
+                    self.logger.debug(traceback.format_exc())
                     stats['failed_files'] += 1
                     completed_count += 1
 
@@ -397,21 +430,38 @@ class FileIndexer:
 
             # 提交剩余的文档
             if not stats['cancelled'] and pending_docs:
+                batch_count += 1
+                self.logger.info(f"提交最后批次 {batch_count} ({len(pending_docs)} 个文件)...")
                 if progress_callback:
                     progress_callback(files_to_process, files_to_process, "", "正在提交最后批次...")
-                for doc in pending_docs:
-                    writer.delete_by_term('path', doc['path'])
-                    writer.add_document(**doc)
-                pending_docs.clear()
+                try:
+                    for doc in pending_docs:
+                        writer.delete_by_term('path', doc['path'])
+                        writer.add_document(**doc)
+                    writer.commit()
+                    self.logger.info(f"最后批次 {batch_count} 提交成功")
+                except Exception as e:
+                    self.logger.error(f"最后批次提交失败: {e}")
+                    import traceback
+                    self.logger.debug(traceback.format_exc())
+                    stats['failed_files'] += len(pending_docs)
 
-            # 提交更改（只有未取消时才提交）
-            if not stats['cancelled']:
-                if progress_callback:
-                    progress_callback(files_to_process, files_to_process, "", "正在保存索引...")
-                writer.commit()
+            # 关闭writer
+            if writer:
+                try:
+                    # 如果没有提交，尝试取消
+                    if pending_docs:
+                        writer.cancel()
+                    else:
+                        # 所有文档已提交，无需额外操作
+                        pass
+                except:
+                    pass
 
         except Exception as e:
-            self.logger.error(f"索引过程发生错误: {e}")
+            self.logger.error(f"索引过程发生严重错误: {e}")
+            import traceback
+            self.logger.debug(traceback.format_exc())
             # 取消writer
             if writer:
                 try:
