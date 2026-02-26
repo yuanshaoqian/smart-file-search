@@ -540,7 +540,7 @@ class MainWindow(QMainWindow):
         settings_menu = menubar.addMenu("设置(&S)")
         
         # 配置文件
-        config_action = QAction("打开配置文件(&C)", self)
+        config_action = QAction("设置(&S)", self)
         config_action.triggered.connect(self.open_config_file)
         settings_menu.addAction(config_action)
         
@@ -1281,12 +1281,27 @@ class MainWindow(QMainWindow):
             self.status_label.setText("路径已复制到剪贴板")
     
     def open_config_file(self):
-        """打开配置文件"""
-        from .config import ConfigManager
-        config_path = ConfigManager.get_default_config_path()
+        """打开设置对话框"""
+        try:
+            from .settings_dialog import SettingsDialog
+        except ImportError:
+            from settings_dialog import SettingsDialog
         
-        if Path(config_path).exists():
-            QDesktopServices.openUrl(Path(config_path).as_uri())
+        dialog = SettingsDialog(self.config, self)
+        dialog.config_changed.connect(self._on_config_changed)
+        dialog.exec()
+    
+    def _on_config_changed(self):
+        """配置已更改"""
+        # 重新加载配置
+        from .config import reload_config
+        try:
+            reload_config
+        except ImportError:
+            from config import reload_config
+        
+        self.config = reload_config()
+        self.status_label.setText("设置已保存，部分设置需要重启生效")
     
     def show_ai_settings(self):
         """显示 AI 设置对话框"""

@@ -403,3 +403,10 @@ if __name__ == "__main__":
     print(f"日志级别: {config.logging.level}")
     print(f"索引目录: {config.index.directories}")
     print(f"AI 启用: {config.ai.enabled}")
+
+def save_config(config: AppConfig, config_path: Optional[str] = None) -> None:
+    """保存配置到文件"""
+    global _config_manager
+    if _config_manager is None:
+        _config_manager = ConfigManager(config_path)
+    _config_manager.save(config)
