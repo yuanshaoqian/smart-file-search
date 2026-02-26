@@ -18,6 +18,16 @@
 
 ---
 
+## [1.0.4] - 2026-02-26
+
+### Fixed
+- 修复打包后程序启动失败的问题（`TypeError: Cannot log to objects of type 'NoneType'`）
+  - 在打包环境中 `sys.stderr` 可能为 `None`，添加了空值检查
+  - 添加日志配置的异常处理，确保程序能正常启动
+- 简化 macOS 构建配置，使用 `macos-latest` runner
+
+---
+
 ## [1.0.3] - 2026-02-26
 
 ### Fixed
@@ -92,7 +102,8 @@
 - **Fixed**: 问题修复
 - **Security**: 安全相关的修复
 
-[Unreleased]: https://github.com/yuanshaoqian/smart-file-search/compare/v1.0.3...HEAD
+[Unreleased]: https://github.com/yuanshaoqian/smart-file-search/compare/v1.0.4...HEAD
+[1.0.4]: https://github.com/yuanshaoqian/smart-file-search/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/yuanshaoqian/smart-file-search/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/yuanshaoqian/smart-file-search/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/yuanshaoqian/smart-file-search/compare/v1.0.0...v1.0.1

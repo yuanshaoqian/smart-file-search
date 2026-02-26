@@ -9,7 +9,6 @@ import sys
 import os
 import atexit
 from pathlib import Path
-from loguru import logger
 from datetime import datetime
 
 # 获取程序运行目录
@@ -23,26 +22,45 @@ else:
 # 添加到 Python 路径
 sys.path.insert(0, str(application_path))
 
-# 配置日志
+# 配置日志 - 在导入 loguru 之前配置
+from loguru import logger
+
+# 移除默认处理器
+logger.remove()
+
+# 配置日志目录
 log_dir = application_path / "logs"
-log_dir.mkdir(exist_ok=True)
+try:
+    log_dir.mkdir(parents=True, exist_ok=True)
+except Exception:
+    pass
+
 log_file = log_dir / f"smart_file_search_{datetime.now().strftime('%Y%m%d')}.log"
 
-# 移除默认处理器并添加新的
-logger.remove()
-logger.add(
-    sys.stderr,
-    level="DEBUG",
-    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
-)
-logger.add(
-    str(log_file),
-    level="DEBUG",
-    format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
-    rotation="10 MB",
-    retention="7 days",
-    encoding="utf-8"
-)
+# 添加控制台日志（仅在 stderr 可用时）
+if sys.stderr is not None:
+    try:
+        logger.add(
+            sys.stderr,
+            level="DEBUG",
+            format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
+        )
+    except Exception:
+        pass
+
+# 添加文件日志
+try:
+    logger.add(
+        str(log_file),
+        level="DEBUG",
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
+        rotation="10 MB",
+        retention="7 days",
+        encoding="utf-8"
+    )
+except Exception as e:
+    # 如果文件日志失败，至少确保程序能运行
+    pass
 
 logger.info("=" * 50)
 logger.info("Smart File Search 启动中...")

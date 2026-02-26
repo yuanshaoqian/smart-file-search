@@ -55,7 +55,7 @@ jobs:
           src/main.py
       shell: pwsh
 
-    - name: Create portable version (without AI model)
+    - name: Create portable version
       run: |
         New-Item -ItemType Directory -Force -Path dist\SmartFileSearch-Portable
         Copy-Item dist\SmartFileSearch.exe dist\SmartFileSearch-Portable\
@@ -71,7 +71,7 @@ jobs:
         Compress-Archive -Path dist\SmartFileSearch-Portable -DestinationPath dist\SmartFileSearch-Windows-Portable.zip
       shell: pwsh
 
-    - name: Create full version (with AI model)
+    - name: Create full version
       run: |
         Write-Host "Downloading AI model..."
         New-Item -ItemType Directory -Force -Path data\models
@@ -98,18 +98,9 @@ jobs:
           dist/SmartFileSearch-Windows-Portable.zip
           dist/SmartFileSearch-Windows-Full.zip
 
-  # 构建 macOS 版本 (同时支持 Intel 和 Apple Silicon)
+  # 构建 macOS 版本 (Apple Silicon)
   build-macos:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        include:
-          - os: macos-14
-            arch: arm64
-            suffix: '-AppleSilicon'
-          - os: macos-13
-            arch: x86_64
-            suffix: '-Intel'
+    runs-on: macos-latest
 
     steps:
     - name: Checkout code
@@ -129,7 +120,6 @@ jobs:
     - name: Build executable
       run: |
         pyinstaller --clean --onefile --windowed --name SmartFileSearch \
-          --target-arch ${{ matrix.arch }} \
           --add-data "src:src" \
           --add-data "config.yaml:." \
           --hidden-import PyQt6.QtCore \
@@ -152,35 +142,23 @@ jobs:
           --paths src \
           src/main.py
 
-    - name: Create portable version (without AI model)
+    - name: Create portable version
       run: |
         mkdir -p dist/SmartFileSearch-Portable
         cp dist/SmartFileSearch dist/SmartFileSearch-Portable/
         cp config.yaml dist/SmartFileSearch-Portable/
         cp README.md dist/SmartFileSearch-Portable/
-        cp start.sh dist/SmartFileSearch-Portable/ 2>/dev/null || echo "#!/bin/bash" > dist/SmartFileSearch-Portable/start.sh && echo "./SmartFileSearch" >> dist/SmartFileSearch-Portable/start.sh
+        printf '#!/bin/bash\n./SmartFileSearch\n' > dist/SmartFileSearch-Portable/start.sh
         chmod +x dist/SmartFileSearch-Portable/start.sh
         mkdir -p dist/SmartFileSearch-Portable/data/models
         mkdir -p dist/SmartFileSearch-Portable/data/indexdir
         mkdir -p dist/SmartFileSearch-Portable/logs
 
-        cat > dist/SmartFileSearch-Portable/README.txt << 'EOF'
-        Smart File Search Portable (macOS)
+        printf 'Smart File Search Portable (macOS Apple Silicon)\n\nUsage:\n1. Double-click SmartFileSearch to start\n2. Or run ./start.sh in terminal for verbose output\n3. AI model will be downloaded on first use\n\nFeatures:\n- No installation required\n- ~80MB (without AI model)\n- For Apple Silicon Macs (M1/M2/M3)\n' > dist/SmartFileSearch-Portable/README.txt
 
-        Usage:
-        1. Double-click SmartFileSearch to start
-        2. Or run ./start.sh in terminal for verbose output
-        3. AI model will be downloaded on first use
+        cd dist && zip -r SmartFileSearch-macOS-AppleSilicon-Portable.zip SmartFileSearch-Portable
 
-        Features:
-        - No installation required
-        - ~80MB (without AI model)
-        - AI model on-demand download (~1.7GB)
-        EOF
-
-        cd dist && zip -r SmartFileSearch-macOS${{ matrix.suffix }}-Portable.zip SmartFileSearch-Portable
-
-    - name: Create full version (with AI model)
+    - name: Create full version
       run: |
         echo "Downloading AI model..."
         mkdir -p data/models
@@ -191,33 +169,21 @@ jobs:
         cp -r data dist/SmartFileSearch-Full/
         cp config.yaml dist/SmartFileSearch-Full/
         cp README.md dist/SmartFileSearch-Full/
-        cp start.sh dist/SmartFileSearch-Full/ 2>/dev/null || echo "#!/bin/bash" > dist/SmartFileSearch-Full/start.sh && echo "./SmartFileSearch" >> dist/SmartFileSearch-Full/start.sh
+        printf '#!/bin/bash\n./SmartFileSearch\n' > dist/SmartFileSearch-Full/start.sh
         chmod +x dist/SmartFileSearch-Full/start.sh
 
-        cat > dist/SmartFileSearch-Full/README.txt << 'EOF'
-        Smart File Search Full (macOS)
+        printf 'Smart File Search Full (macOS Apple Silicon)\n\nUsage:\n1. Double-click SmartFileSearch to start\n2. Or run ./start.sh in terminal for verbose output\n3. AI model included, ready to use\n\nFeatures:\n- No installation required\n- ~1.8GB (with AI model)\n- For Apple Silicon Macs (M1/M2/M3)\n' > dist/SmartFileSearch-Full/README.txt
 
-        Usage:
-        1. Double-click SmartFileSearch to start
-        2. Or run ./start.sh in terminal for verbose output
-        3. AI model included, ready to use
-
-        Features:
-        - No installation required
-        - ~1.8GB (with AI model)
-        - AI features ready immediately
-        EOF
-
-        cd dist && zip -r SmartFileSearch-macOS${{ matrix.suffix }}-Full.zip SmartFileSearch-Full
+        cd dist && zip -r SmartFileSearch-macOS-AppleSilicon-Full.zip SmartFileSearch-Full
 
     - name: Upload macOS artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: SmartFileSearch-macOS${{ matrix.suffix }}
+        name: SmartFileSearch-macOS-AppleSilicon
         path: |
           dist/SmartFileSearch
-          dist/SmartFileSearch-macOS${{ matrix.suffix }}-Portable.zip
-          dist/SmartFileSearch-macOS${{ matrix.suffix }}-Full.zip
+          dist/SmartFileSearch-macOS-AppleSilicon-Portable.zip
+          dist/SmartFileSearch-macOS-AppleSilicon-Full.zip
 
   # 创建发布
   create-release:
@@ -232,36 +198,24 @@ jobs:
     - name: Extract changelog for current version
       id: changelog
       run: |
-        # 从 tag 中提取版本号 (去掉 v 前缀)
         VERSION="${GITHUB_REF_NAME#v}"
-
-        # 提取当前版本的更新内容
         CHANGELOG=""
 
-        # 读取 CHANGELOG.md
         if [ -f "CHANGELOG.md" ]; then
-          # 找到当前版本的位置，提取到下一个版本标题之前的内容
           CHANGELOG=$(sed -n "/^## \[${VERSION}\]/,/^## \[/p" CHANGELOG.md | sed '$d' | sed '1d')
-
-          # 如果没找到带方括号的版本号，尝试其他格式
           if [ -z "$CHANGELOG" ]; then
             CHANGELOG=$(sed -n "/^## \[v${VERSION}\]/,/^## \[/p" CHANGELOG.md | sed '$d' | sed '1d')
           fi
-
-          # 尝试不带方括号的格式
           if [ -z "$CHANGELOG" ]; then
             CHANGELOG=$(sed -n "/^## ${VERSION}/,/^## /p" CHANGELOG.md | sed '$d' | sed '1d')
           fi
         fi
 
-        # 如果 CHANGELOG 为空，使用默认内容
         if [ -z "$CHANGELOG" ]; then
           CHANGELOG="请查看 CHANGELOG.md 获取更新详情。"
         fi
 
-        # 保存到文件（避免多行字符串问题）
         echo "$CHANGELOG" > /tmp/changelog.txt
-
         echo "version=$VERSION" >> $GITHUB_OUTPUT
 
     - name: Download Windows artifacts
@@ -270,33 +224,21 @@ jobs:
         name: SmartFileSearch-Windows
         path: dist/windows
 
-    - name: Download macOS Intel artifacts
-      uses: actions/download-artifact@v4
-      with:
-        name: SmartFileSearch-macOS-Intel
-        path: dist/macos-intel
-
-    - name: Download macOS Apple Silicon artifacts
+    - name: Download macOS artifacts
       uses: actions/download-artifact@v4
       with:
         name: SmartFileSearch-macOS-AppleSilicon
-        path: dist/macos-arm
+        path: dist/macos
 
     - name: Prepare release files
       run: |
         mkdir -p release
-        # Windows
         cp dist/windows/SmartFileSearch.exe release/
         cp dist/windows/SmartFileSearch-Windows-Portable.zip release/
         cp dist/windows/SmartFileSearch-Windows-Full.zip release/
-        # macOS Intel
-        cp dist/macos-intel/SmartFileSearch release/SmartFileSearch-macOS-Intel
-        cp dist/macos-intel/SmartFileSearch-macOS-Intel-Portable.zip release/
-        cp dist/macos-intel/SmartFileSearch-macOS-Intel-Full.zip release/
-        # macOS Apple Silicon
-        cp dist/macos-arm/SmartFileSearch release/SmartFileSearch-macOS-AppleSilicon
-        cp dist/macos-arm/SmartFileSearch-macOS-AppleSilicon-Portable.zip release/
-        cp dist/macos-arm/SmartFileSearch-macOS-AppleSilicon-Full.zip release/
+        cp dist/macos/SmartFileSearch release/SmartFileSearch-macOS
+        cp dist/macos/SmartFileSearch-macOS-AppleSilicon-Portable.zip release/
+        cp dist/macos/SmartFileSearch-macOS-AppleSilicon-Full.zip release/
 
     - name: Create Release
       uses: softprops/action-gh-release@v2
@@ -309,10 +251,7 @@ jobs:
           release/SmartFileSearch.exe
           release/SmartFileSearch-Windows-Portable.zip
           release/SmartFileSearch-Windows-Full.zip
-          release/SmartFileSearch-macOS-Intel
-          release/SmartFileSearch-macOS-Intel-Portable.zip
-          release/SmartFileSearch-macOS-Intel-Full.zip
-          release/SmartFileSearch-macOS-AppleSilicon
+          release/SmartFileSearch-macOS
           release/SmartFileSearch-macOS-AppleSilicon-Portable.zip
           release/SmartFileSearch-macOS-AppleSilicon-Full.zip
       env:
