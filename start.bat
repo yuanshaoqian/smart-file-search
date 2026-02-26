@@ -21,49 +21,68 @@ python --version >nul 2>&1
 if errorlevel 1 (
     echo [错误] 未找到 Python
     echo 请安装 Python 3.10 或更高版本
+    echo 下载地址: https://www.python.org/downloads/
     pause
     exit /b 1
 )
 
-REM 检查 Python 版本
-for /f "tokens=2" %%i in ('python -c "import sys; print(sys.version_info.major, sys.version_info.minor)" 2^>nul') do set PYTHON_MINOR=%%i
-for /f "tokens=1" %%i in ('python -c "import sys; print(sys.version_info.major, sys.version_info.minor)" 2^>nul') do set PYTHON_MAJOR=%%i
+REM 获取 Python 版本（改进的版本检测）
+for /f "tokens=2 delims= " %%i in ('python --version 2^>^&1') do set PYTHON_VERSION=%%i
+echo [信息] 检测到 Python 版本: %PYTHON_VERSION%
 
+REM 解析版本号
+for /f "tokens=1,2 delims=." %%i in ("%PYTHON_VERSION%") do (
+    set PYTHON_MAJOR=%%i
+    set PYTHON_MINOR=%%j
+)
+
+REM 移除可能的额外字符（如 14rc1 -> 14）
+for /f "tokens=1 delims=abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ" %%i in ("%PYTHON_MINOR%") do set PYTHON_MINOR=%%i
+
+echo [调试] 主版本: %PYTHON_MAJOR%, 次版本: %PYTHON_MINOR%
+
+REM 版本检查
 if %PYTHON_MAJOR% lss 3 (
-    echo [错误] Python 版本过低
+    echo [错误] Python 版本过低: %PYTHON_MAJOR%.%PYTHON_MINOR%
     echo 需要 Python 3.10 或更高版本
     pause
     exit /b 1
 )
 
-if %PYTHON_MAJOR% equ 3 if %PYTHON_MINOR% lss 10 (
-    echo [错误] Python 版本过低 (3.%PYTHON_MINOR%)
-    echo 需要 Python 3.10 或更高版本
-    pause
-    exit /b 1
+if %PYTHON_MAJOR% equ 3 (
+    if %PYTHON_MINOR% lss 10 (
+        echo [错误] Python 版本过低: 3.%PYTHON_MINOR%
+        echo 需要 Python 3.10 或更高版本
+        pause
+        exit /b 1
+    )
 )
 
-echo [OK] Python 版本: %PYTHON_MAJOR%.%PYTHON_MINOR%
+echo [OK] Python 版本符合要求: %PYTHON_MAJOR%.%PYTHON_MINOR%
 
 REM 检查依赖
 echo.
 echo [信息] 检查 Python 依赖...
 if not exist "requirements.txt" (
-    echo [错误] 未找到 requirements.txt
-    pause
-    exit /b 1
+    echo [警告] 未找到 requirements.txt，跳过依赖检查
+    goto skip_deps
 )
 
+REM 检查关键依赖
 python -c "import PyQt6" 2>nul
 if errorlevel 1 (
-    echo [警告] 缺少依赖，正在安装...
+    echo [信息] 缺少 PyQt6，正在安装依赖...
     pip install -r requirements.txt
     if errorlevel 1 (
-        echo [错误] 依赖安装失败
-        pause
-        exit /b 1
+        echo [警告] 依赖安装可能失败，尝试继续启动...
+    ) else (
+        echo [OK] 依赖安装完成
     )
+) else (
+    echo [OK] 依赖检查通过
 )
+
+:skip_deps
 
 REM 创建必要目录
 if not exist "data\indexdir" mkdir "data\indexdir"
@@ -113,11 +132,15 @@ if %DEBUG_MODE% equ 1 (
 set EXIT_CODE=%errorlevel%
 
 if %EXIT_CODE% neq 0 (
+    echo.
     echo [错误] 应用异常退出，代码: %EXIT_CODE%
     echo 查看 logs\app.log 获取详细信息
+    pause
+) else (
+    echo.
+    echo [信息] 应用已正常退出
 )
 
-pause
 exit /b %EXIT_CODE%
 
 :help
@@ -134,6 +157,10 @@ echo.
 echo 示例:
 echo   start.bat          正常启动应用
 echo   start.bat --init   创建初始文件索引
+echo.
+echo 要求:
+echo   - Python 3.10 或更高版本
+echo   - Windows 10 或更高版本
 echo.
 pause
 exit /b 0
