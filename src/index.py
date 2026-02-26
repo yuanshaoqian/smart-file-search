@@ -563,6 +563,8 @@ class FileIndexer:
         filters = filters or {}
         results = []
 
+        self.logger.info(f"开始搜索: '{query_str}', 过滤条件: {filters}")
+
         with self.ix.searcher() as searcher:
             # 检查是否启用模糊搜索
             use_fuzzy = filters.get('fuzzy', True)
@@ -585,27 +587,26 @@ class FileIndexer:
                 return []
 
             # 如果启用模糊搜索且原始查询不包含模糊语法，自动转换为模糊查询
-            if use_fuzzy and '~' not in query_str:
+            if use_fuzzy and '~' not in query_str and '*' not in query_str and '?' not in query_str:
                 try:
+                    self.logger.debug(f"构建模糊查询: '{query_str}'")
                     # 尝试构建多种查询组合以获得更好的模糊匹配效果
                     fuzzy_terms = []
 
-                    # 1. 对原始查询进行通配符和前缀匹配
-                    # 处理带点号的版本号 (如 10.127)
-                    if '.' in query_str:
-                        # 添加通配符匹配（支持部分匹配）
-                        wildcard_terms = []
-                        prefix_terms = []
-                        for field in ['filename', 'content', 'path']:
-                            # 支持前缀匹配：10.12 可以匹配 10.12, 10.123, 10.127 等
-                            wildcard_terms.append(Wildcard(field, f"{query_str}*"))
-                            prefix_terms.append(Prefix(field, query_str))
-                        if wildcard_terms:
-                            fuzzy_terms.append(Or(wildcard_terms))
-                        if prefix_terms:
-                            fuzzy_terms.append(Or(prefix_terms))
+                    # 1. 中间通配符匹配（最重要的模糊匹配方式）
+                    # *query_str* 可以匹配任意位置包含该字符串的内容
+                    for field in ['filename', 'content', 'path']:
+                        fuzzy_terms.append(Wildcard(field, f"*{query_str}*"))
 
-                    # 2. 分词后进行模糊匹配
+                    # 2. 前缀匹配（开头匹配）
+                    for field in ['filename', 'content', 'path']:
+                        fuzzy_terms.append(Prefix(field, query_str))
+
+                    # 3. 精确匹配
+                    for field in ['filename', 'content', 'path']:
+                        fuzzy_terms.append(Term(field, query_str))
+
+                    # 4. 分词后进行编辑距离模糊匹配
                     terms = query_str.split()
                     for term in terms:
                         if len(term) > 2:  # 只对长度大于2的词进行模糊匹配
@@ -614,13 +615,16 @@ class FileIndexer:
                                 # 使用不同距离的模糊查询
                                 term_queries.append(FuzzyTerm(field, term, maxdist=1))
                                 term_queries.append(FuzzyTerm(field, term, maxdist=2))
+                                # 每个词也添加中间通配符匹配
+                                term_queries.append(Wildcard(field, f"*{term}*"))
                             if term_queries:
                                 fuzzy_terms.append(Or(term_queries))
                         else:
-                            # 短词使用常规查询
+                            # 短词使用通配符和精确匹配
                             term_queries = []
                             for field in ['filename', 'content', 'path']:
                                 term_queries.append(Term(field, term))
+                                term_queries.append(Wildcard(field, f"*{term}*"))
                             if term_queries:
                                 fuzzy_terms.append(Or(term_queries))
 
@@ -629,8 +633,11 @@ class FileIndexer:
                         fuzzy_query = Or(fuzzy_terms)
                         # 同时保留原始查询，组合两者以获得更好的结果
                         query = Or([query, fuzzy_query])
+                        self.logger.debug(f"模糊查询构建完成，包含 {len(fuzzy_terms)} 个查询条件")
                 except Exception as e:
-                    self.logger.debug(f"构建模糊查询失败，使用原始查询: {e}")
+                    self.logger.warning(f"构建模糊查询失败，使用原始查询: {e}")
+                    import traceback
+                    self.logger.debug(traceback.format_exc())
                     # 如果模糊查询构建失败，继续使用原始查询
             
             # 应用过滤条件
@@ -676,11 +683,13 @@ class FileIndexer:
                         'highlights': hit.highlights('content', top=3) or hit.highlights('filename', top=3),
                     }
                     results.append(result)
-                
-                self.logger.debug(f"搜索 '{query_str}' 找到 {len(results)} 个结果")
-                
+
+                self.logger.info(f"搜索完成: '{query_str}' 找到 {len(results)} 个结果 (耗时: {searcher.search(query, limit=1).runtime:.3f}s)")
+
             except Exception as e:
                 self.logger.error(f"执行搜索失败: {e}")
+                import traceback
+                self.logger.debug(traceback.format_exc())
                 return []
         
         return results

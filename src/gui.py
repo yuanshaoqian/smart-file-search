@@ -595,38 +595,41 @@ class AIAnswerArea(QTextEdit):
 
 class MainWindow(QMainWindow):
     """主窗口"""
-    
+
     def __init__(self, indexer=None, ai_engine=None, config=None):
         super().__init__()
-        
+
         self.indexer = indexer
         self.ai_engine = ai_engine
         self.config = config or get_config()
         self.logger = logger.bind(module="gui")
-        
+        self.logger.info("MainWindow 初始化开始")
+
         # 搜索历史
         self.search_history = []
         self.max_history = 50
-        
+
         # 初始化界面
         self.setup_ui()
         self.setup_menu()
         self.setup_toolbar()
         self.setup_statusbar()
         self.setup_shortcuts()
-        
+
         # 加载设置
         self.load_settings()
-        
+
         # 连接信号
         self.connect_signals()
-        
+
         # 初始化状态
         self.update_status()
 
         # 搜索线程
         self.search_thread = None
         self.ai_search_thread = None
+
+        self.logger.info("MainWindow 初始化完成")
     
     def setup_ui(self):
         """设置界面"""
@@ -1069,7 +1072,10 @@ class MainWindow(QMainWindow):
 
         # 如果有正在进行的搜索，等待它完成
         if self.search_thread and self.search_thread.isRunning():
+            self.logger.warning("搜索正在进行中，跳过新搜索请求")
             return
+
+        self.logger.info(f"开始搜索: '{query}'")
 
         # 添加到搜索历史
         if query not in self.search_history:
@@ -1078,6 +1084,7 @@ class MainWindow(QMainWindow):
 
         # 获取筛选条件
         filters = self.filter_panel.get_filters()
+        self.logger.debug(f"搜索过滤条件: {filters}")
 
         # 更新UI状态
         self.status_label.setText("搜索中...")
@@ -1096,6 +1103,8 @@ class MainWindow(QMainWindow):
 
     def _on_search_finished(self, results: List[Dict], elapsed: float):
         """搜索完成回调"""
+        self.logger.info(f"搜索完成: 找到 {len(results)} 个结果, 耗时 {elapsed:.2f}秒")
+
         # 显示结果
         self.result_table.display_results(results)
         self.result_info_label.setText(f"共 {len(results)} 个结果 ({elapsed:.2f}秒)")
@@ -1475,24 +1484,34 @@ class MainWindow(QMainWindow):
     
     def closeEvent(self, event):
         """窗口关闭事件"""
+        self.logger.info("窗口关闭事件触发")
+
         # 保存设置
         self.save_settings()
+        self.logger.info("设置已保存")
 
         # 等待搜索线程完成
         if hasattr(self, 'search_thread') and self.search_thread and self.search_thread.isRunning():
+            self.logger.info("等待搜索线程完成...")
             self.search_thread.quit()
             self.search_thread.wait(500)
+            self.logger.info("搜索线程已停止")
 
         # 等待AI搜索线程完成
         if hasattr(self, 'ai_search_thread') and self.ai_search_thread and self.ai_search_thread.isRunning():
+            self.logger.info("等待AI搜索线程完成...")
             self.ai_search_thread.quit()
             self.ai_search_thread.wait(500)
+            self.logger.info("AI搜索线程已停止")
 
         # 关闭工作线程
         if hasattr(self, 'worker') and self.worker.isRunning():
+            self.logger.info("等待工作线程完成...")
             self.worker.terminate()
             self.worker.wait()
+            self.logger.info("工作线程已停止")
 
+        self.logger.info("窗口关闭完成")
         event.accept()
 
 
