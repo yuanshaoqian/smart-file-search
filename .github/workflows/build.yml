@@ -30,7 +30,29 @@ jobs:
         
     - name: Build executable
       run: |
-        pyinstaller --clean --onefile --windowed --name SmartFileSearch src/main.py --add-data "config.yaml;." --hidden-import PyQt6.QtCore --hidden-import PyQt6.QtGui --hidden-import PyQt6.QtWidgets --hidden-import whoosh --hidden-import docx --hidden-import openpyxl --hidden-import yaml --hidden-import loguru
+        pyinstaller --clean --onefile --windowed --name SmartFileSearch `
+          --add-data "src;src" `
+          --add-data "config.yaml;." `
+          --hidden-import PyQt6.QtCore `
+          --hidden-import PyQt6.QtGui `
+          --hidden-import PyQt6.QtWidgets `
+          --hidden-import PyQt6.sip `
+          --hidden-import whoosh `
+          --hidden-import whoosh.fields `
+          --hidden-import whoosh.index `
+          --hidden-import whoosh.qparser `
+          --hidden-import docx `
+          --hidden-import docx.opc `
+          --hidden-import openpyxl `
+          --hidden-import yaml `
+          --hidden-import loguru `
+          --hidden-import watchdog `
+          --hidden-import watchdog.observers `
+          --hidden-import watchdog.events `
+          --hidden-import chardet `
+          --paths src `
+          src/main.py
+      shell: pwsh
         
     - name: Create portable version (without AI model)
       run: |
@@ -45,7 +67,7 @@ jobs:
         New-Item -ItemType Directory -Force -Path dist\SmartFileSearch-Portable\logs
         
         # 创建说明文件
-        Set-Content -Path "dist\SmartFileSearch-Portable\使用说明.txt" -Value "Smart File Search 便携版`n`n使用方法：`n1. 双击 start.bat 启动程序`n2. AI模型将在首次使用AI功能时自动下载`n3. 所有数据保存在本目录中`n`n特点：`n- 无需安装，解压即用`n- 约80MB（不含AI模型）`n- AI模型按需下载（约1.7GB）"
+        Set-Content -Path "dist\SmartFileSearch-Portable\使用说明.txt" -Value "Smart File Search 便携版`n`n使用方法：`n1. 双击 SmartFileSearch.exe 启动程序`n2. 或双击 start.bat 查看详细启动信息`n3. AI模型将在首次使用AI功能时自动下载`n4. 所有数据保存在本目录中`n`n特点：`n- 无需安装，解压即用`n- 约80MB（不含AI模型）`n- AI模型按需下载（约1.7GB）"
         
         # 打包便携版
         Compress-Archive -Path dist\SmartFileSearch-Portable -DestinationPath dist\SmartFileSearch-Portable.zip
@@ -67,7 +89,7 @@ jobs:
         Copy-Item start.bat dist\SmartFileSearch-Full\
         
         # 创建说明文件
-        Set-Content -Path "dist\SmartFileSearch-Full\使用说明.txt" -Value "Smart File Search 完整版`n`n使用方法：`n1. 双击 start.bat 启动程序`n2. AI模型已包含，可直接使用AI功能`n`n特点：`n- 无需安装，解压即用`n- 包含AI模型（约1.8GB）`n- AI功能立即可用"
+        Set-Content -Path "dist\SmartFileSearch-Full\使用说明.txt" -Value "Smart File Search 完整版`n`n使用方法：`n1. 双击 SmartFileSearch.exe 启动程序`n2. 或双击 start.bat 查看详细启动信息`n3. AI模型已包含，可直接使用AI功能`n`n特点：`n- 无需安装，解压即用`n- 包含AI模型（约1.8GB）`n- AI功能立即可用"
         
         # 打包完整版
         Compress-Archive -Path dist\SmartFileSearch-Full -DestinationPath dist\SmartFileSearch-Full.zip
@@ -121,7 +143,7 @@ jobs:
           ### 便携版/完整版使用方法
           1. 下载对应的 zip 文件
           2. 解压到任意目录
-          3. 双击 `start.bat` 运行
+          3. 双击 `SmartFileSearch.exe` 运行
           
           ### 单文件版使用方法
           1. 下载 `SmartFileSearch.exe`

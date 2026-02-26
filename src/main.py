@@ -10,20 +10,37 @@ import os
 from pathlib import Path
 from loguru import logger
 
-# 添加项目根目录到路径
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
+# 获取程序运行目录
+if getattr(sys, 'frozen', False):
+    # PyInstaller 打包后的路径
+    application_path = Path(sys.executable).parent
+else:
+    # 开发环境路径
+    application_path = Path(__file__).parent.parent
+
+# 添加到 Python 路径
+sys.path.insert(0, str(application_path))
 
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt
 
 # 导入启动画面
-from src.splash import SplashScreen
+try:
+    from src.splash import SplashScreen
+except ImportError:
+    # 打包后的导入方式
+    from splash import SplashScreen
 
 # 导入主窗口
-from src.gui import MainWindow
-from src.config import get_config
-from src.index import FileIndexer
+try:
+    from src.gui import MainWindow
+    from src.config import get_config
+    from src.index import FileIndexer
+except ImportError:
+    # 打包后的导入方式
+    from gui import MainWindow
+    from config import get_config
+    from index import FileIndexer
 
 
 def main():
