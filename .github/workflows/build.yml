@@ -98,9 +98,9 @@ jobs:
           dist/SmartFileSearch-Windows-Portable.zip
           dist/SmartFileSearch-Windows-Full.zip
 
-  # 构建 macOS 版本
+  # 构建 macOS 版本 (使用 Intel runner，兼容 Intel Mac 和 Apple Silicon)
   build-macos:
-    runs-on: macos-latest
+    runs-on: macos-13
 
     steps:
     - name: Checkout code

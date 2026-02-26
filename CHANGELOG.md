@@ -18,6 +18,14 @@
 
 ---
 
+## [1.0.1] - 2026-02-26
+
+### Fixed
+- 修复 macOS 版本在 Intel Mac 上无法运行的问题（"bad CPU type in executable"）
+- 使用 Intel runner 构建以兼容所有 Mac 设备
+
+---
+
 ## [1.0.0] - 2025-02-26
 
 ### Added
@@ -56,5 +64,6 @@
 - **Fixed**: 问题修复
 - **Security**: 安全相关的修复
 
-[Unreleased]: https://github.com/yuanshaoqian/smart-file-search/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/yuanshaoqian/smart-file-search/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/yuanshaoqian/smart-file-search/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/yuanshaoqian/smart-file-search/releases/tag/v1.0.0
