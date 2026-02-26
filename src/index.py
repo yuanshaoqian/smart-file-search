@@ -202,14 +202,15 @@ class FileIndexer:
         
         return doc
     
-    def create_index(self, root_paths: List[str], incremental: bool = False) -> Dict[str, Any]:
+    def create_index(self, root_paths: List[str], incremental: bool = False, progress_callback=None) -> Dict[str, Any]:
         """
         创建或更新索引
-        
+
         Args:
             root_paths: 要索引的根目录列表
             incremental: 是否增量更新（只更新变化文件）
-            
+            progress_callback: 进度回调函数，签名为 callback(current, total, filename, status)
+
         Returns:
             统计信息
         """
@@ -222,42 +223,57 @@ class FileIndexer:
             'end_time': None,
             'directories': root_paths,
         }
-        
+
         self.logger.info(f"开始{'增量' if incremental else '全量'}索引: {root_paths}")
-        
+
         # 收集所有文件
+        if progress_callback:
+            progress_callback(0, 0, "", "正在扫描目录...")
+
         all_files = []
         for root_path in root_paths:
             root = Path(root_path).expanduser().resolve()
             if not root.exists():
                 self.logger.warning(f"目录不存在: {root}")
                 continue
-            
+
             for file_path in root.rglob('*'):
                 if file_path.is_file():
                     all_files.append(str(file_path))
-        
+                    # 报告扫描进度
+                    if progress_callback and len(all_files) % 50 == 0:
+                        progress_callback(0, len(all_files), str(file_path), "正在扫描文件...")
+
         stats['total_files'] = len(all_files)
         self.logger.info(f"找到 {stats['total_files']} 个文件")
-        
+
         # 如果是增量更新，检查哪些文件需要更新
         files_to_index = all_files
         if incremental and self.ix.reader().doc_count() > 0:
+            if progress_callback:
+                progress_callback(0, len(all_files), "", "正在检查文件变化...")
             files_to_index = self._get_changed_files(all_files)
             self.logger.info(f"增量更新: {len(files_to_index)} 个文件需要更新")
-        
+
+        # 更新需要索引的文件总数
+        files_to_process = len(files_to_index)
+        if progress_callback:
+            mode_text = "增量索引" if incremental else "全量索引"
+            progress_callback(0, files_to_process, "", f"准备{mode_text}...")
+
         # 使用线程池并行处理文件
         writer = AsyncWriter(self.ix)
         futures = {}
-        
+        completed_count = 0
+
         for file_path in files_to_index:
             future = self.executor.submit(self._index_file, file_path)
             futures[future] = file_path
-        
+
         # 处理结果
         for future in as_completed(futures):
             file_path = futures[future]
-            
+
             try:
                 doc = future.result(timeout=30)
                 if doc:
@@ -266,22 +282,42 @@ class FileIndexer:
                     # 添加新记录
                     writer.add_document(**doc)
                     stats['indexed_files'] += 1
-                    
-                    if stats['indexed_files'] % 100 == 0:
-                        self.logger.info(f"已索引 {stats['indexed_files']} 个文件")
+
+                    # 报告进度
+                    completed_count += 1
+                    if progress_callback and completed_count % 10 == 0:
+                        progress_callback(
+                            completed_count,
+                            files_to_process,
+                            file_path,
+                            f"已索引 {completed_count}/{files_to_process} 个文件"
+                        )
                 else:
                     stats['skipped_files'] += 1
-                    
+                    completed_count += 1
+
             except Exception as e:
                 self.logger.error(f"索引文件失败 {file_path}: {e}")
                 stats['failed_files'] += 1
-        
+                completed_count += 1
+
+                # 报告错误
+                if progress_callback:
+                    progress_callback(
+                        completed_count,
+                        files_to_process,
+                        file_path,
+                        f"索引失败: {Path(file_path).name}"
+                    )
+
         # 提交更改
+        if progress_callback:
+            progress_callback(files_to_process, files_to_process, "", "正在提交索引...")
         writer.commit()
-        
+
         stats['end_time'] = time.time()
         stats['duration'] = stats['end_time'] - stats['start_time']
-        
+
         self.logger.info(
             f"索引完成: 处理 {stats['total_files']} 个文件, "
             f"成功 {stats['indexed_files']} 个, "
@@ -289,7 +325,7 @@ class FileIndexer:
             f"失败 {stats['failed_files']} 个, "
             f"耗时 {stats['duration']:.2f} 秒"
         )
-        
+
         return stats
     
     def _get_changed_files(self, all_files: List[str]) -> List[str]:

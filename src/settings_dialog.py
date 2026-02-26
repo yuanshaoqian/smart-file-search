@@ -313,48 +313,71 @@ class SettingsDialog(QDialog):
     
     def _save_settings(self):
         """保存设置"""
+        # 显示保存状态
+        self.ok_btn.setEnabled(False)
+        self.apply_btn.setEnabled(False)
+        self.ok_btn.setText("保存中...")
+
+        # 强制处理事件，确保UI更新
+        from PyQt6.QtWidgets import QApplication
+        QApplication.processEvents()
+
         try:
             # 常规
             self.config.language = self.lang_combo.currentData()
-            
+
             # 索引
             self.config.index.directories = [
                 self.dir_list.item(i).text()
                 for i in range(self.dir_list.count())
             ]
-            
+
             self.config.index.exclude_patterns = [
                 line.strip()
                 for line in self.exclude_patterns.toPlainText().split('\n')
                 if line.strip()
             ]
-            
+
             self.config.index.max_file_size = self.max_file_size.value() * 1024 * 1024
             self.config.index.update_interval = self.update_interval.value()
             self.config.index.incremental = self.incremental_check.isChecked()
-            
+
             # AI
             self.config.ai.enabled = self.ai_enabled.isChecked()
             self.config.ai.model_path = self.model_path.text()
             self.config.ai.context_size = self.context_size.value()
             self.config.ai.max_tokens = self.max_tokens.value()
             self.config.ai.temperature = self.temperature.value()
-            
+
             # 界面
             self.config.gui.theme = self.theme_combo.currentData()
             self.config.gui.max_results = self.max_results.value()
             self.config.gui.preview_max_lines = self.preview_lines.value()
-            
+
+            # 验证配置
+            if not self.config.index.directories:
+                QMessageBox.warning(self, "配置错误", "请至少添加一个索引目录！")
+                return False
+
             # 保存到文件
             save_config(self.config)
-            
+
             self.logger.info("设置已保存")
             return True
-            
+
         except Exception as e:
             self.logger.error(f"保存设置失败: {e}")
-            QMessageBox.warning(self, "保存失败", f"保存设置时出错：\n{str(e)}")
+            import traceback
+            traceback.print_exc()
+            QMessageBox.warning(self, "保存失败", f"保存设置时出错：\n{str(e)}\n\n请查看日志获取详细信息。")
             return False
+
+        finally:
+            # 恢复按钮状态
+            self.ok_btn.setEnabled(True)
+            self.apply_btn.setEnabled(True)
+            self.ok_btn.setText("确定")
+            QApplication.processEvents()
     
     def _add_index_dir(self):
         """添加索引目录"""

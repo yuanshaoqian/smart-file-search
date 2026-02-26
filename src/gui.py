@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
     QStatusBar, QMenuBar, QMenu, QToolBar, QFileDialog, QMessageBox,
     QProgressDialog, QAbstractItemView, QHeaderView, QFrame,
     QListWidget, QListWidgetItem, QDateEdit, QTabWidget, QPlainTextEdit,
-    QStyle, QSizePolicy
+    QStyle, QSizePolicy, QDialog, QProgressBar
 )
 from PyQt6.QtCore import (
     Qt, QTimer, QThread, pyqtSignal, QSize, QDate, QSettings,
@@ -35,18 +35,161 @@ from loguru import logger
 from .config import get_config
 
 
+class IndexProgressDialog(QDialog):
+    """索引进度对话框 - 显示详细的索引进度信息"""
+
+    def __init__(self, title: str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setModal(True)
+        self.setMinimumSize(500, 200)
+        self.setWindowFlags(
+            Qt.WindowType.Dialog |
+            Qt.WindowType.CustomizeWindowHint |
+            Qt.WindowType.WindowTitleHint
+        )
+        self._setup_ui()
+        self._was_cancelled = False
+
+    def _setup_ui(self):
+        """设置界面"""
+        layout = QVBoxLayout(self)
+        layout.setSpacing(15)
+
+        # 主状态标签
+        self.status_label = QLabel("准备开始...")
+        self.status_label.setFont(QFont("Microsoft YaHei", 11))
+        layout.addWidget(self.status_label)
+
+        # 进度条
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setMinimum(0)
+        self.progress_bar.setMaximum(100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setTextVisible(True)
+        self.progress_bar.setFormat("%p% (%v / %m)")
+        layout.addWidget(self.progress_bar)
+
+        # 详细信息标签
+        self.detail_label = QLabel("")
+        self.detail_label.setFont(QFont("Microsoft YaHei", 9))
+        self.detail_label.setWordWrap(True)
+        self.detail_label.setStyleSheet("color: #888;")
+        layout.addWidget(self.detail_label)
+
+        # 统计信息
+        stats_layout = QHBoxLayout()
+        self.indexed_label = QLabel("已索引: 0")
+        self.skipped_label = QLabel("跳过: 0")
+        self.failed_label = QLabel("失败: 0")
+        for label in [self.indexed_label, self.skipped_label, self.failed_label]:
+            label.setFont(QFont("Microsoft YaHei", 9))
+            stats_layout.addWidget(label)
+        layout.addLayout(stats_layout)
+
+        layout.addStretch()
+
+        # 取消按钮
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        self.cancel_btn = QPushButton("取消")
+        self.cancel_btn.setMinimumWidth(100)
+        self.cancel_btn.clicked.connect(self.cancel)
+        btn_layout.addWidget(self.cancel_btn)
+        layout.addLayout(btn_layout)
+
+        # 应用样式
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #2b2b2b;
+                color: #ffffff;
+            }
+            QLabel {
+                color: #ffffff;
+            }
+            QProgressBar {
+                border: 2px solid #555;
+                border-radius: 5px;
+                text-align: center;
+                background-color: #3c3c3c;
+                color: #ffffff;
+            }
+            QProgressBar::chunk {
+                background-color: #0078d4;
+                border-radius: 3px;
+            }
+            QPushButton {
+                background-color: #0078d4;
+                border: none;
+                border-radius: 5px;
+                padding: 8px 16px;
+                color: white;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #1e8ae6;
+            }
+            QPushButton:pressed {
+                background-color: #006cbd;
+            }
+        """)
+
+    def update_progress(self, current: int, total: int, filename: str = "", status: str = ""):
+        """更新进度"""
+        # 更新进度条
+        if total > 0:
+            self.progress_bar.setMaximum(total)
+            self.progress_bar.setValue(current)
+        else:
+            self.progress_bar.setRange(0, 0)  # 不确定进度模式
+
+        # 更新状态文本
+        if status:
+            self.status_label.setText(status)
+
+        # 更新详细信息
+        if filename:
+            # 显示文件名（最多显示60个字符）
+            display_name = Path(filename).name
+            if len(display_name) > 60:
+                display_name = display_name[:57] + "..."
+            self.detail_label.setText(f"当前文件: {display_name}")
+        else:
+            self.detail_label.setText("")
+
+        # 强制刷新界面
+        QApplication.processEvents()
+
+    def update_stats(self, indexed: int, skipped: int, failed: int):
+        """更新统计信息"""
+        self.indexed_label.setText(f"已索引: {indexed}")
+        self.skipped_label.setText(f"跳过: {skipped}")
+        self.failed_label.setText(f"失败: {failed}")
+
+    def cancel(self):
+        """取消操作"""
+        self._was_cancelled = True
+        self.status_label.setText("正在取消...")
+        self.cancel_btn.setEnabled(False)
+
+    def was_cancelled(self) -> bool:
+        """检查是否被取消"""
+        return self._was_cancelled
+
+
 class WorkerThread(QThread):
     """后台工作线程"""
     finished = pyqtSignal(object)
     error = pyqtSignal(str)
-    progress = pyqtSignal(int, str)
-    
+    progress = pyqtSignal(int, int, str, str)  # current, total, filename, status
+    stats_update = pyqtSignal(int, int, int)  # indexed, skipped, failed
+
     def __init__(self, func, *args, **kwargs):
         super().__init__()
         self.func = func
         self.args = args
         self.kwargs = kwargs
-    
+
     def run(self):
         try:
             result = self.func(*self.args, **self.kwargs)
@@ -837,187 +980,7 @@ class MainWindow(QMainWindow):
         else:
             self.ai_status_label.setText("AI: 禁用")
             self.ai_btn.setEnabled(False)
-    def update_status(self):
-        """更新状态"""
-        # 更新索引信息
-        if self.indexer and hasattr(self.indexer, 'get_file_count'):
-            try:
-                count = self.indexer.get_file_count()
-                self.index_info_label.setText(f"索引: {count} 个文件")
-            except Exception as e:
-                self.logger.error(f"获取文件数量失败: {e}")
-                self.index_info_label.setText("索引: 未知")
-        else:
-            self.index_info_label.setText("索引: 未初始化")
-        
-        # 更新 AI 状态
-        if self.ai_engine and self.ai_engine.is_enabled():
-            self.ai_status_label.setText("AI: 启用")
-            self.ai_btn.setEnabled(True)
-        else:
-            self.ai_status_label.setText("AI: 禁用")
-            self.ai_btn.setEnabled(False)
-    def update_status(self):
-        """更新状态"""
-        # 更新索引信息
-        if self.indexer and hasattr(self.indexer, 'get_file_count'):
-            try:
-                count = self.indexer.get_file_count()
-                self.index_info_label.setText(f"索引: {count} 个文件")
-            except Exception as e:
-                self.logger.error(f"获取文件数量失败: {e}")
-                self.index_info_label.setText("索引: 未知")
-        else:
-            self.index_info_label.setText("索引: 未初始化")
-        
-        # 更新 AI 状态
-        if self.ai_engine and self.ai_engine.is_enabled():
-            self.ai_status_label.setText("AI: 启用")
-            self.ai_btn.setEnabled(True)
-        else:
-            self.ai_status_label.setText("AI: 禁用")
-            self.ai_btn.setEnabled(False)
-    def update_status(self):
-        """更新状态"""
-        # 更新索引信息
-        if self.indexer and hasattr(self.indexer, 'get_file_count'):
-            try:
-                count = self.indexer.get_file_count()
-                self.index_info_label.setText(f"索引: {count} 个文件")
-            except Exception as e:
-                self.logger.error(f"获取文件数量失败: {e}")
-                self.index_info_label.setText("索引: 未知")
-        else:
-            self.index_info_label.setText("索引: 未初始化")
-        
-        # 更新 AI 状态
-        if self.ai_engine and self.ai_engine.is_enabled():
-            self.ai_status_label.setText("AI: 启用")
-            self.ai_btn.setEnabled(True)
-        else:
-            self.ai_status_label.setText("AI: 禁用")
-            self.ai_btn.setEnabled(False)
-    def update_status(self):
-        """更新状态"""
-        # 更新索引信息
-        if self.indexer and hasattr(self.indexer, 'get_file_count'):
-            try:
-                count = self.indexer.get_file_count()
-                self.index_info_label.setText(f"索引: {count} 个文件")
-            except Exception as e:
-                self.logger.error(f"获取文件数量失败: {e}")
-                self.index_info_label.setText("索引: 未知")
-        else:
-            self.index_info_label.setText("索引: 未初始化")
-        
-        # 更新 AI 状态
-        if self.ai_engine and self.ai_engine.is_enabled():
-            self.ai_status_label.setText("AI: 启用")
-            self.ai_btn.setEnabled(True)
-        else:
-            self.ai_status_label.setText("AI: 禁用")
-            self.ai_btn.setEnabled(False)
-    def update_status(self):
-        """更新状态"""
-        # 更新索引信息
-        if self.indexer and hasattr(self.indexer, 'get_file_count'):
-            try:
-                count = self.indexer.get_file_count()
-                self.index_info_label.setText(f"索引: {count} 个文件")
-            except Exception as e:
-                self.logger.error(f"获取文件数量失败: {e}")
-                self.index_info_label.setText("索引: 未知")
-        else:
-            self.index_info_label.setText("索引: 未初始化")
-        
-        # 更新 AI 状态
-        if self.ai_engine and self.ai_engine.is_enabled():
-            self.ai_status_label.setText("AI: 启用")
-            self.ai_btn.setEnabled(True)
-        else:
-            self.ai_status_label.setText("AI: 禁用")
-            self.ai_btn.setEnabled(False)
-    def update_status(self):
-        """更新状态"""
-        # 更新索引信息
-        if self.indexer and hasattr(self.indexer, 'get_file_count'):
-            try:
-                count = self.indexer.get_file_count()
-                self.index_info_label.setText(f"索引: {count} 个文件")
-            except Exception as e:
-                self.logger.error(f"获取文件数量失败: {e}")
-                self.index_info_label.setText("索引: 未知")
-        else:
-            self.index_info_label.setText("索引: 未初始化")
-        
-        # 更新 AI 状态
-        if self.ai_engine and self.ai_engine.is_enabled():
-            self.ai_status_label.setText("AI: 启用")
-            self.ai_btn.setEnabled(True)
-        else:
-            self.ai_status_label.setText("AI: 禁用")
-            self.ai_btn.setEnabled(False)
-    def update_status(self):
-        """更新状态"""
-        # 更新索引信息
-        if self.indexer and hasattr(self.indexer, 'get_file_count'):
-            try:
-                count = self.indexer.get_file_count()
-                self.index_info_label.setText(f"索引: {count} 个文件")
-            except Exception as e:
-                self.logger.error(f"获取文件数量失败: {e}")
-                self.index_info_label.setText("索引: 未知")
-        else:
-            self.index_info_label.setText("索引: 未初始化")
-        
-        # 更新 AI 状态
-        if self.ai_engine and self.ai_engine.is_enabled():
-            self.ai_status_label.setText("AI: 启用")
-            self.ai_btn.setEnabled(True)
-        else:
-            self.ai_status_label.setText("AI: 禁用")
-            self.ai_btn.setEnabled(False)
-    def update_status(self):
-        """更新状态"""
-        # 更新索引信息
-        if self.indexer and hasattr(self.indexer, 'get_file_count'):
-            try:
-                count = self.indexer.get_file_count()
-                self.index_info_label.setText(f"索引: {count} 个文件")
-            except Exception as e:
-                self.logger.error(f"获取文件数量失败: {e}")
-                self.index_info_label.setText("索引: 未知")
-        else:
-            self.index_info_label.setText("索引: 未初始化")
-        
-        # 更新 AI 状态
-        if self.ai_engine and self.ai_engine.is_enabled():
-            self.ai_status_label.setText("AI: 启用")
-            self.ai_btn.setEnabled(True)
-        else:
-            self.ai_status_label.setText("AI: 禁用")
-            self.ai_btn.setEnabled(False)
-    def update_status(self):
-        """更新状态"""
-        # 更新索引信息
-        if self.indexer and hasattr(self.indexer, 'get_file_count'):
-            try:
-                count = self.indexer.get_file_count()
-                self.index_info_label.setText(f"索引: {count} 个文件")
-            except Exception as e:
-                self.logger.error(f"获取文件数量失败: {e}")
-                self.index_info_label.setText("索引: 未知")
-        else:
-            self.index_info_label.setText("索引: 未初始化")
-        
-        # 更新 AI 状态
-        if self.ai_engine and self.ai_engine.is_enabled():
-            self.ai_status_label.setText("AI: 启用")
-            self.ai_btn.setEnabled(True)
-        else:
-            self.ai_status_label.setText("AI: 禁用")
-            self.ai_btn.setEnabled(False)
-    
+
     def on_search_text_changed(self, text: str):
         """搜索文本变化"""
         # 防抖：延迟 300ms 后执行搜索
@@ -1207,34 +1170,45 @@ class MainWindow(QMainWindow):
     
     def _do_index(self, incremental: bool = False):
         """执行索引操作"""
-        # 创建进度对话框
-        progress = QProgressDialog(
-            "正在更新索引..." if incremental else "正在创建索引...",
-            "取消",
-            0, 100,
-            self
-        )
-        progress.setWindowModality(Qt.WindowModality.WindowModal)
-        progress.show()
-        
+        # 创建详细的进度对话框
+        title = "更新索引" if incremental else "创建索引"
+        progress_dialog = IndexProgressDialog(title, self)
+        progress_dialog.show()
+
+        # 进度回调函数
+        def progress_callback(current, total, filename, status):
+            """索引进度回调"""
+            if progress_dialog.was_cancelled():
+                return
+            self.worker.progress.emit(current, total, filename, status)
+
         def index_task():
             return self.indexer.create_index(
                 self.config.index.directories,
-                incremental=incremental
+                incremental=incremental,
+                progress_callback=progress_callback
             )
-        
+
         # 使用工作线程
         self.worker = WorkerThread(index_task)
-        self.worker.finished.connect(lambda stats: self._on_index_complete(stats, progress))
-        self.worker.error.connect(lambda err: self._on_index_error(err, progress))
+
+        # 连接信号
+        self.worker.progress.connect(
+            lambda curr, total, fname, status: progress_dialog.update_progress(curr, total, fname, status)
+        )
+        self.worker.finished.connect(lambda stats: self._on_index_complete(stats, progress_dialog))
+        self.worker.error.connect(lambda err: self._on_index_error(err, progress_dialog))
+
         self.worker.start()
     
-    def _on_index_complete(self, stats: Dict, progress: QProgressDialog):
+    def _on_index_complete(self, stats: Dict, progress: IndexProgressDialog):
         """索引完成"""
         progress.close()
-        
+
         self.update_status()
-        
+
+        # 显示完成信息
+        duration = stats.get('duration', 0)
         QMessageBox.information(
             self,
             "索引完成",
@@ -1243,15 +1217,15 @@ class MainWindow(QMainWindow):
             f"已索引: {stats.get('indexed_files', 0)}\n"
             f"跳过: {stats.get('skipped_files', 0)}\n"
             f"失败: {stats.get('failed_files', 0)}\n"
-            f"耗时: {stats.get('duration', 0):.2f} 秒"
+            f"耗时: {duration:.2f} 秒"
         )
-        
+
         self.status_label.setText("索引完成")
     
-    def _on_index_error(self, error: str, progress: QProgressDialog):
+    def _on_index_error(self, error: str, progress: IndexProgressDialog):
         """索引错误"""
         progress.close()
-        
+
         QMessageBox.critical(self, "索引错误", f"索引创建失败:\n{error}")
         self.status_label.setText("索引失败")
     
@@ -1286,10 +1260,19 @@ class MainWindow(QMainWindow):
             from .settings_dialog import SettingsDialog
         except ImportError:
             from settings_dialog import SettingsDialog
-        
-        dialog = SettingsDialog(self.config, self)
-        dialog.config_changed.connect(self._on_config_changed)
-        dialog.exec()
+
+        try:
+            dialog = SettingsDialog(self.config, self)
+            dialog.config_changed.connect(self._on_config_changed)
+            dialog.exec()
+
+        except Exception as e:
+            self.logger.error(f"打开设置对话框失败: {e}")
+            QMessageBox.critical(
+                self,
+                "错误",
+                f"打开设置对话框失败:\n{str(e)}\n\n请查看日志获取详细信息。"
+            )
     
     def _on_config_changed(self):
         """配置已更改"""
