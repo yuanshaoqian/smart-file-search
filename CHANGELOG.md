@@ -18,6 +18,16 @@
 
 ---
 
+## [1.0.3] - 2026-02-26
+
+### Fixed
+- 修复 macOS 构建配置问题
+- 现在同时提供 Intel 和 Apple Silicon 两个版本的 macOS 构建
+  - `SmartFileSearch-macOS-Intel-*`: 适用于 Intel Mac
+  - `SmartFileSearch-macOS-AppleSilicon-*`: 适用于 M1/M2/M3 Mac
+
+---
+
 ## [1.0.2] - 2026-02-26
 
 ### Fixed
@@ -82,7 +92,8 @@
 - **Fixed**: 问题修复
 - **Security**: 安全相关的修复
 
-[Unreleased]: https://github.com/yuanshaoqian/smart-file-search/compare/v1.0.2...HEAD
+[Unreleased]: https://github.com/yuanshaoqian/smart-file-search/compare/v1.0.3...HEAD
+[1.0.3]: https://github.com/yuanshaoqian/smart-file-search/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/yuanshaoqian/smart-file-search/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/yuanshaoqian/smart-file-search/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/yuanshaoqian/smart-file-search/releases/tag/v1.0.0

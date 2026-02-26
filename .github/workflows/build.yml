@@ -98,9 +98,18 @@ jobs:
           dist/SmartFileSearch-Windows-Portable.zip
           dist/SmartFileSearch-Windows-Full.zip
 
-  # 构建 macOS 版本 (使用 Intel runner，兼容 Intel Mac 和 Apple Silicon)
+  # 构建 macOS 版本 (同时支持 Intel 和 Apple Silicon)
   build-macos:
-    runs-on: macos-13
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: macos-14
+            arch: arm64
+            suffix: '-AppleSilicon'
+          - os: macos-13
+            arch: x86_64
+            suffix: '-Intel'
 
     steps:
     - name: Checkout code
@@ -120,6 +129,7 @@ jobs:
     - name: Build executable
       run: |
         pyinstaller --clean --onefile --windowed --name SmartFileSearch \
+          --target-arch ${{ matrix.arch }} \
           --add-data "src:src" \
           --add-data "config.yaml:." \
           --hidden-import PyQt6.QtCore \
@@ -168,7 +178,7 @@ jobs:
         - AI model on-demand download (~1.7GB)
         EOF
 
-        cd dist && zip -r SmartFileSearch-macOS-Portable.zip SmartFileSearch-Portable
+        cd dist && zip -r SmartFileSearch-macOS${{ matrix.suffix }}-Portable.zip SmartFileSearch-Portable
 
     - name: Create full version (with AI model)
       run: |
@@ -198,16 +208,16 @@ jobs:
         - AI features ready immediately
         EOF
 
-        cd dist && zip -r SmartFileSearch-macOS-Full.zip SmartFileSearch-Full
+        cd dist && zip -r SmartFileSearch-macOS${{ matrix.suffix }}-Full.zip SmartFileSearch-Full
 
     - name: Upload macOS artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: SmartFileSearch-macOS
+        name: SmartFileSearch-macOS${{ matrix.suffix }}
         path: |
           dist/SmartFileSearch
-          dist/SmartFileSearch-macOS-Portable.zip
-          dist/SmartFileSearch-macOS-Full.zip
+          dist/SmartFileSearch-macOS${{ matrix.suffix }}-Portable.zip
+          dist/SmartFileSearch-macOS${{ matrix.suffix }}-Full.zip
 
   # 创建发布
   create-release:
@@ -260,21 +270,33 @@ jobs:
         name: SmartFileSearch-Windows
         path: dist/windows
 
-    - name: Download macOS artifacts
+    - name: Download macOS Intel artifacts
       uses: actions/download-artifact@v4
       with:
-        name: SmartFileSearch-macOS
-        path: dist/macos
+        name: SmartFileSearch-macOS-Intel
+        path: dist/macos-intel
+
+    - name: Download macOS Apple Silicon artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: SmartFileSearch-macOS-AppleSilicon
+        path: dist/macos-arm
 
     - name: Prepare release files
       run: |
         mkdir -p release
+        # Windows
         cp dist/windows/SmartFileSearch.exe release/
         cp dist/windows/SmartFileSearch-Windows-Portable.zip release/
         cp dist/windows/SmartFileSearch-Windows-Full.zip release/
-        cp dist/macos/SmartFileSearch release/SmartFileSearch-macOS
-        cp dist/macos/SmartFileSearch-macOS-Portable.zip release/
-        cp dist/macos/SmartFileSearch-macOS-Full.zip release/
+        # macOS Intel
+        cp dist/macos-intel/SmartFileSearch release/SmartFileSearch-macOS-Intel
+        cp dist/macos-intel/SmartFileSearch-macOS-Intel-Portable.zip release/
+        cp dist/macos-intel/SmartFileSearch-macOS-Intel-Full.zip release/
+        # macOS Apple Silicon
+        cp dist/macos-arm/SmartFileSearch release/SmartFileSearch-macOS-AppleSilicon
+        cp dist/macos-arm/SmartFileSearch-macOS-AppleSilicon-Portable.zip release/
+        cp dist/macos-arm/SmartFileSearch-macOS-AppleSilicon-Full.zip release/
 
     - name: Create Release
       uses: softprops/action-gh-release@v2
@@ -287,8 +309,11 @@ jobs:
           release/SmartFileSearch.exe
           release/SmartFileSearch-Windows-Portable.zip
           release/SmartFileSearch-Windows-Full.zip
-          release/SmartFileSearch-macOS
-          release/SmartFileSearch-macOS-Portable.zip
-          release/SmartFileSearch-macOS-Full.zip
+          release/SmartFileSearch-macOS-Intel
+          release/SmartFileSearch-macOS-Intel-Portable.zip
+          release/SmartFileSearch-macOS-Intel-Full.zip
+          release/SmartFileSearch-macOS-AppleSilicon
+          release/SmartFileSearch-macOS-AppleSilicon-Portable.zip
+          release/SmartFileSearch-macOS-AppleSilicon-Full.zip
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
