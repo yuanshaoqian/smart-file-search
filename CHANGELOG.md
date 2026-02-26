@@ -18,6 +18,20 @@
 
 ---
 
+## [1.0.5] - 2026-02-26
+
+### Fixed
+- 修复索引时闪退的问题
+  - 将批次提交大小从 50 降低到 10，减少内存占用
+  - 增加文件处理超时时间从 30s 到 60s
+  - 添加详细的闪退日志记录，包括：
+    - 每个文件索引前后的状态
+    - 批次提交的详细过程（写入、commit、创建新writer）
+    - 完整的错误堆栈信息
+  - 改进异常处理，确保程序不会静默崩溃
+
+---
+
 ## [1.0.4] - 2026-02-26
 
 ### Fixed
@@ -102,7 +116,8 @@
 - **Fixed**: 问题修复
 - **Security**: 安全相关的修复
 
-[Unreleased]: https://github.com/yuanshaoqian/smart-file-search/compare/v1.0.4...HEAD
+[Unreleased]: https://github.com/yuanshaoqian/smart-file-search/compare/v1.0.5...HEAD
+[1.0.5]: https://github.com/yuanshaoqian/smart-file-search/compare/v1.0.4...v1.0.5
 [1.0.4]: https://github.com/yuanshaoqian/smart-file-search/compare/v1.0.3...v1.0.4
 [1.0.3]: https://github.com/yuanshaoqian/smart-file-search/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/yuanshaoqian/smart-file-search/compare/v1.0.1...v1.0.2
