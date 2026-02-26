@@ -31,43 +31,99 @@ class QueryAnalysis:
 
 class AIEngine:
     """AI 引擎"""
-    
+
     def __init__(self, config=None):
         """
         初始化 AI 引擎
-        
+
         Args:
             config: 应用程序配置
         """
         self.config = config or get_config()
         self.logger = logger.bind(module="ai_engine")
-        
+
         # AI 模型相关
         self.model = None
         self.model_loaded = False
         self.enabled = self.config.ai.enabled
-        
+
+        # GPU信息
+        self.gpu_info = None
+
         # 线程池（用于异步处理）
         self.executor = ThreadPoolExecutor(max_workers=1)
-        
+
         # 加载模型（如果启用）
         if self.enabled:
             self._load_model()
-        
+
         # 初始化提示词模板
         self._init_prompt_templates()
     
+    def _detect_gpu(self) -> dict:
+        """检测可用的GPU"""
+        gpu_info = {
+            'available': False,
+            'type': None,
+            'device_count': 0,
+            'n_gpu_layers': -1  # -1 表示所有层都放到GPU
+        }
+
+        try:
+            # 检查CUDA (NVIDIA)
+            import subprocess
+            result = subprocess.run(['nvidia-smi', '--query-gpu=name', '--format=csv,noheader'],
+                                  capture_output=True, text=True, timeout=2)
+            if result.returncode == 0 and result.stdout.strip():
+                gpu_info['available'] = True
+                gpu_info['type'] = 'cuda'
+                gpu_info['device_count'] = len(result.stdout.strip().split('\n'))
+                gpu_names = result.stdout.strip().replace('\n', ', ')
+                self.logger.info(f"检测到NVIDIA GPU: {gpu_names}")
+                return gpu_info
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+        try:
+            # 检查ROCm (AMD)
+            result = subprocess.run(['rocm-smi', '--showid'],
+                                  capture_output=True, text=True, timeout=2)
+            if result.returncode == 0:
+                gpu_info['available'] = True
+                gpu_info['type'] = 'rocm'
+                self.logger.info("检测到AMD GPU (ROCm)")
+                return gpu_info
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+        try:
+            # 检查Metal (Apple Silicon)
+            import platform
+            if platform.machine() == 'arm64':
+                result = subprocess.run(['system_profiler', 'SPDisplaysDataType'],
+                                      capture_output=True, text=True, timeout=2)
+                if 'Metal' in result.stdout or 'Apple GPU' in result.stdout:
+                    gpu_info['available'] = True
+                    gpu_info['type'] = 'metal'
+                    self.logger.info("检测到Apple Silicon GPU (Metal)")
+                    return gpu_info
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+        self.logger.info("未检测到可用的GPU，将使用CPU")
+        return gpu_info
+
     def _load_model(self) -> bool:
         """加载 AI 模型"""
         if not self.enabled:
             return False
-        
+
         model_path = Path(self.config.ai.model_path).expanduser()
-        
+
         # 检查模型文件是否存在
         if not model_path.exists():
             self.logger.warning(f"AI 模型文件不存在: {model_path}")
-            
+
             # 可选：尝试下载模型
             if self.config.ai.model_url:
                 self.logger.info(f"尝试下载模型: {self.config.ai.model_url}")
@@ -81,36 +137,49 @@ class AIEngine:
                 self.logger.error("模型文件不存在且无下载 URL，禁用 AI 功能")
                 self.enabled = False
                 return False
-        
+
         try:
             # 动态导入 llama-cpp-python
             from llama_cpp import Llama
-            
+
             self.logger.info(f"加载 AI 模型: {model_path}")
-            
-            self.model = Llama(
-                model_path=str(model_path),
-                n_ctx=self.config.ai.context_size,
-                n_threads=4,  # 使用4个线程
-                n_batch=512,
-                verbose=False,
-            )
-            
+
+            # 检测GPU
+            self.gpu_info = self._detect_gpu()
+
+            # 构建模型参数
+            model_params = {
+                'model_path': str(model_path),
+                'n_ctx': self.config.ai.context_size,
+                'n_threads': 4,
+                'n_batch': 512,
+                'verbose': False,
+            }
+
+            # 如果有GPU，启用GPU加速
+            if self.gpu_info['available']:
+                model_params['n_gpu_layers'] = self.gpu_info['n_gpu_layers']
+                self.logger.info(f"启用GPU加速 ({self.gpu_info['type']})")
+
+                # 根据GPU类型设置特定参数
+                if self.gpu_info['type'] == 'metal':
+                    # Metal (Apple Silicon) 特定设置
+                    model_params['n_threads'] = 1  # Metal使用单线程更高效
+                elif self.gpu_info['type'] == 'cuda':
+                    # CUDA特定设置
+                    import os
+                    # 设置CUDA设备（如果有多个GPU）
+                    if self.gpu_info['device_count'] > 1:
+                        os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+            else:
+                self.logger.info("使用CPU进行推理")
+
+            self.model = Llama(**model_params)
+
             self.model_loaded = True
             self.logger.info("AI 模型加载成功")
-            
-            # 测试模型
-            test_response = self.model.create_completion(
-                "Hello", max_tokens=10, temperature=0
-            )
-            if test_response:
-                self.logger.debug("AI 模型测试通过")
-                return True
-            else:
-                self.logger.error("AI 模型测试失败")
-                self.enabled = False
-                return False
-                
+            return True
+
         except ImportError:
             self.logger.error("llama-cpp-python 未安装，禁用 AI 功能")
             self.enabled = False
@@ -462,8 +531,9 @@ class AIEngine:
         """获取模型信息"""
         if not self.enabled or not self.model_loaded:
             return {'enabled': False}
-        
+
         model_path = Path(self.config.ai.model_path)
+
         return {
             'enabled': True,
             'model_path': str(model_path),
@@ -471,6 +541,8 @@ class AIEngine:
             'model_size_mb': model_path.stat().st_size / (1024 * 1024) if model_path.exists() else 0,
             'context_size': self.config.ai.context_size,
             'loaded': self.model_loaded,
+            'gpu_available': self.gpu_info['available'] if self.gpu_info else False,
+            'gpu_type': self.gpu_info['type'] if self.gpu_info else None,
         }
     
     def close(self) -> None:

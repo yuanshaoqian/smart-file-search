@@ -348,6 +348,31 @@ class SettingsDialog(QDialog):
             self.config.ai.max_tokens = self.max_tokens.value()
             self.config.ai.temperature = self.temperature.value()
 
+            # 验证AI配置
+            if self.config.ai.enabled:
+                model_path = Path(self.config.ai.model_path).expanduser()
+                if not model_path.exists():
+                    reply = QMessageBox.question(
+                        self,
+                        "AI 模型文件不存在",
+                        f"AI 模型文件不存在：\n{model_path}\n\n"
+                        "AI 功能需要模型文件才能正常工作。\n"
+                        "是否禁用 AI 功能？",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.Yes
+                    )
+                    if reply == QMessageBox.StandardButton.Yes:
+                        self.config.ai.enabled = False
+                    else:
+                        QMessageBox.information(
+                            self,
+                            "提示",
+                            "您可以从以下地址下载模型文件：\n"
+                            "https://huggingface.co/TheBloke/phi-2-GGUF\n\n"
+                            "下载后将文件放在配置的路径，然后重新启用 AI 功能。"
+                        )
+                        return False
+
             # 界面
             self.config.gui.theme = self.theme_combo.currentData()
             self.config.gui.max_results = self.max_results.value()

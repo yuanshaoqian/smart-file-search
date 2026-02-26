@@ -209,6 +209,69 @@ class WorkerThread(QThread):
             self.error.emit(str(e))
 
 
+class SearchThread(QThread):
+    """搜索线程 - 避免UI假死"""
+    finished = pyqtSignal(list, float)  # results, elapsed_time
+    error = pyqtSignal(str)
+
+    def __init__(self, indexer, query, limit, filters):
+        super().__init__()
+        self.indexer = indexer
+        self.query = query
+        self.limit = limit
+        self.filters = filters
+
+    def run(self):
+        try:
+            start_time = time.time()
+            results = self.indexer.search(self.query, limit=self.limit, filters=self.filters)
+            elapsed = time.time() - start_time
+            self.finished.emit(results, elapsed)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class AISearchThread(QThread):
+    """AI搜索线程 - 避免UI假死"""
+    finished = pyqtSignal(object, list, float)  # analysis, results, elapsed_time
+    error = pyqtSignal(str)
+
+    def __init__(self, ai_engine, indexer, query, max_results, filters):
+        super().__init__()
+        self.ai_engine = ai_engine
+        self.indexer = indexer
+        self.query = query
+        self.max_results = max_results
+        self.filters = filters
+
+    def run(self):
+        try:
+            import time
+            start_time = time.time()
+
+            # 使用 AI 解析自然语言
+            analysis = self.ai_engine.parse_natural_language(self.query)
+
+            # 构建搜索查询
+            if analysis.keywords:
+                search_query = " ".join(analysis.keywords)
+            else:
+                search_query = self.query
+
+            # 合并过滤条件
+            filters = self.filters.copy()
+            if analysis.filters:
+                filters.update(analysis.filters)
+
+            # 执行搜索
+            results = self.indexer.search(search_query, limit=self.max_results, filters=filters)
+
+            elapsed = time.time() - start_time
+            self.finished.emit(analysis, results, elapsed)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
 class SearchResultTable(QTableWidget):
     """搜索结果表格组件"""
     
@@ -560,11 +623,10 @@ class MainWindow(QMainWindow):
         
         # 初始化状态
         self.update_status()
-        
-        # 搜索防抖定时器
-        self.search_timer = QTimer()
-        self.search_timer.setSingleShot(True)
-        self.search_timer.timeout.connect(self.perform_search)
+
+        # 搜索线程
+        self.search_thread = None
+        self.ai_search_thread = None
     
     def setup_ui(self):
         """设置界面"""
@@ -982,27 +1044,7 @@ class MainWindow(QMainWindow):
                 self.index_info_label.setText("索引: 未知")
         else:
             self.index_info_label.setText("索引: 未初始化")
-        
-        # 更新 AI 状态
-        if self.ai_engine and self.ai_engine.is_enabled():
-            self.ai_status_label.setText("AI: 启用")
-            self.ai_btn.setEnabled(True)
-        else:
-            self.ai_status_label.setText("AI: 禁用")
-            self.ai_btn.setEnabled(False)
-    def update_status(self):
-        """更新状态"""
-        # 更新索引信息
-        if self.indexer and hasattr(self.indexer, 'get_file_count'):
-            try:
-                count = self.indexer.get_file_count()
-                self.index_info_label.setText(f"索引: {count} 个文件")
-            except Exception as e:
-                self.logger.error(f"获取文件数量失败: {e}")
-                self.index_info_label.setText("索引: 未知")
-        else:
-            self.index_info_label.setText("索引: 未初始化")
-        
+
         # 更新 AI 状态
         if self.ai_engine and self.ai_engine.is_enabled():
             self.ai_status_label.setText("AI: 启用")
@@ -1012,104 +1054,138 @@ class MainWindow(QMainWindow):
             self.ai_btn.setEnabled(False)
 
     def on_search_text_changed(self, text: str):
-        """搜索文本变化"""
-        # 防抖：延迟 300ms 后执行搜索
-        self.search_timer.start(300)
+        """搜索文本变化 - 不自动搜索，只更新状态"""
+        # 不再自动搜索，等待用户按Enter键或点击搜索按钮
+        if text.strip():
+            self.status_label.setText("按Enter键或点击搜索按钮开始搜索")
+        else:
+            self.status_label.setText("就绪")
     
     def perform_search(self):
         """执行普通搜索"""
         query = self.search_input.text().strip()
         if not query:
             return
-        
-        self.status_label.setText("搜索中...")
-        QApplication.processEvents()
-        
+
+        # 如果有正在进行的搜索，等待它完成
+        if self.search_thread and self.search_thread.isRunning():
+            return
+
         # 添加到搜索历史
         if query not in self.search_history:
             self.search_history.insert(0, query)
             self.search_history = self.search_history[:self.max_history]
-        
+
         # 获取筛选条件
         filters = self.filter_panel.get_filters()
-        
-        try:
-            # 执行搜索
-            start_time = time.time()
-            results = self.indexer.search(query, limit=self.config.gui.max_results, filters=filters)
-            elapsed = time.time() - start_time
-            
-            # 显示结果
-            self.result_table.display_results(results)
-            self.result_info_label.setText(f"共 {len(results)} 个结果 ({elapsed:.2f}秒)")
-            
-            # 更新状态
-            self.status_label.setText(f"搜索完成，找到 {len(results)} 个结果")
-            
-            # 生成简单回答
-            if results:
-                answer = self._generate_simple_answer(results)
-                self.ai_answer_area.display_answer(answer, is_ai=False)
-            else:
-                self.ai_answer_area.display_answer("未找到匹配的文件。", is_ai=False)
-            
-        except Exception as e:
-            self.logger.error(f"搜索失败: {e}")
-            QMessageBox.warning(self, "搜索错误", f"搜索失败: {str(e)}")
-            self.status_label.setText("搜索失败")
+
+        # 更新UI状态
+        self.status_label.setText("搜索中...")
+        self.ai_answer_area.display_answer("正在搜索...", is_ai=False)
+
+        # 创建搜索线程
+        self.search_thread = SearchThread(
+            self.indexer,
+            query,
+            self.config.gui.max_results,
+            filters
+        )
+        self.search_thread.finished.connect(self._on_search_finished)
+        self.search_thread.error.connect(self._on_search_error)
+        self.search_thread.start()
+
+    def _on_search_finished(self, results: List[Dict], elapsed: float):
+        """搜索完成回调"""
+        # 显示结果
+        self.result_table.display_results(results)
+        self.result_info_label.setText(f"共 {len(results)} 个结果 ({elapsed:.2f}秒)")
+
+        # 更新状态
+        self.status_label.setText(f"搜索完成，找到 {len(results)} 个结果")
+
+        # 生成简单回答
+        if results:
+            answer = self._generate_simple_answer(results)
+            self.ai_answer_area.display_answer(answer, is_ai=False)
+        else:
+            self.ai_answer_area.display_answer("未找到匹配的文件。", is_ai=False)
+
+    def _on_search_error(self, error_msg: str):
+        """搜索错误回调"""
+        self.logger.error(f"搜索失败: {error_msg}")
+        QMessageBox.warning(self, "搜索错误", f"搜索失败: {error_msg}")
+        self.status_label.setText("搜索失败")
+        self.ai_answer_area.display_answer(f"搜索失败: {error_msg}", is_ai=False)
     
     def perform_ai_search(self):
         """执行 AI 搜索"""
         query = self.search_input.text().strip()
         if not query:
             return
-        
+
         if not self.ai_engine or not self.ai_engine.is_enabled():
             QMessageBox.warning(self, "AI 未启用", "AI 功能未启用，请在设置中启用 AI 功能。")
             return
-        
+
+        # 如果有正在进行的AI搜索，等待它完成
+        if self.ai_search_thread and self.ai_search_thread.isRunning():
+            return
+
         self.status_label.setText("AI 分析中...")
         self.ai_answer_area.display_answer("正在分析您的查询，请稍候...", is_ai=True)
-        QApplication.processEvents()
-        
-        try:
-            # 使用 AI 解析自然语言
-            analysis = self.ai_engine.parse_natural_language(query)
-            
-            self.logger.debug(f"AI 分析结果: {analysis}")
-            
-            # 构建搜索查询
-            if analysis.keywords:
-                search_query = " ".join(analysis.keywords)
-            else:
-                search_query = query
-            
-            # 合并过滤条件
-            filters = self.filter_panel.get_filters()
-            if analysis.filters:
-                filters.update(analysis.filters)
-            
-            # 执行搜索
-            results = self.indexer.search(search_query, limit=self.config.gui.max_results, filters=filters)
-            
-            # 显示结果
-            self.result_table.display_results(results)
-            self.result_info_label.setText(f"共 {len(results)} 个结果 (置信度: {analysis.confidence:.0%})")
-            
-            # 生成 AI 回答
-            if results:
-                answer = self.ai_engine.generate_answer(query, results)
-                answer += f"\n\n意图分析: {analysis.intent}"
-            else:
-                answer = f"未找到与 '{query}' 相关的文件。\n\nAI 分析: {analysis.intent}"
-            
+
+        # 获取筛选条件
+        filters = self.filter_panel.get_filters()
+
+        # 创建AI搜索线程
+        self.ai_search_thread = AISearchThread(
+            self.ai_engine,
+            self.indexer,
+            query,
+            self.config.gui.max_results,
+            filters
+        )
+        self.ai_search_thread.finished.connect(self._on_ai_search_finished)
+        self.ai_search_thread.error.connect(self._on_ai_search_error)
+        self.ai_search_thread.start()
+
+    def _on_ai_search_finished(self, analysis, results: List[Dict], elapsed: float):
+        """AI搜索完成回调"""
+        self.logger.debug(f"AI 分析结果: {analysis}")
+
+        # 显示结果
+        self.result_table.display_results(results)
+        self.result_info_label.setText(f"共 {len(results)} 个结果 (置信度: {analysis.confidence:.0%})")
+
+        # 生成 AI 回答
+        query = self.search_input.text().strip()
+        if results:
+            # 在后台线程中生成AI回答
+            self.ai_answer_area.display_answer("正在生成回答...", is_ai=True)
+            # 使用QTimer延迟执行，避免阻塞UI
+            QTimer.singleShot(100, lambda: self._generate_ai_answer(query, results, analysis))
+        else:
+            answer = f"未找到与 '{query}' 相关的文件。\n\nAI 分析: {analysis.intent}"
             self.ai_answer_area.display_answer(answer, is_ai=True)
             self.status_label.setText("AI 搜索完成")
-            
+
+    def _generate_ai_answer(self, query: str, results: List[Dict], analysis):
+        """生成AI回答"""
+        try:
+            answer = self.ai_engine.generate_answer(query, results)
+            answer += f"\n\n意图分析: {analysis.intent}"
+            self.ai_answer_area.display_answer(answer, is_ai=True)
+            self.status_label.setText("AI 搜索完成")
         except Exception as e:
-            self.logger.error(f"AI 搜索失败: {e}")
-            self.ai_answer_area.display_answer(f"AI 搜索失败: {str(e)}", is_ai=True)
+            self.logger.error(f"AI 生成回答失败: {e}")
+            self.ai_answer_area.display_answer(f"AI 生成回答失败: {str(e)}", is_ai=True)
             self.status_label.setText("AI 搜索失败")
+
+    def _on_ai_search_error(self, error_msg: str):
+        """AI搜索错误回调"""
+        self.logger.error(f"AI 搜索失败: {error_msg}")
+        self.ai_answer_area.display_answer(f"AI 搜索失败: {error_msg}", is_ai=True)
+        self.status_label.setText("AI 搜索失败")
     
     def _generate_simple_answer(self, results: List[Dict]) -> str:
         """生成简单回答"""
@@ -1334,9 +1410,33 @@ class MainWindow(QMainWindow):
             reload_config
         except ImportError:
             from config import reload_config
-        
+
         self.config = reload_config()
-        self.status_label.setText("设置已保存，部分设置需要重启生效")
+
+        # 重新初始化AI引擎（如果AI设置有变化）
+        try:
+            from .ai_engine import close_ai_engine, get_ai_engine
+        except ImportError:
+            from ai_engine import close_ai_engine, get_ai_engine
+
+        # 关闭旧的AI引擎
+        close_ai_engine()
+
+        # 重新创建AI引擎
+        self.ai_engine = get_ai_engine(self.config)
+
+        # 更新UI状态
+        self.update_status()
+
+        # 显示提示
+        if self.config.ai.enabled:
+            model_path = Path(self.config.ai.model_path).expanduser()
+            if model_path.exists():
+                self.status_label.setText(f"设置已保存，AI 功能已启用")
+            else:
+                self.status_label.setText(f"设置已保存，但 AI 模型文件不存在")
+        else:
+            self.status_label.setText("设置已保存，AI 功能已禁用")
     
     def show_ai_settings(self):
         """显示 AI 设置对话框"""
@@ -1374,12 +1474,22 @@ class MainWindow(QMainWindow):
         """窗口关闭事件"""
         # 保存设置
         self.save_settings()
-        
+
+        # 等待搜索线程完成
+        if hasattr(self, 'search_thread') and self.search_thread and self.search_thread.isRunning():
+            self.search_thread.quit()
+            self.search_thread.wait(500)
+
+        # 等待AI搜索线程完成
+        if hasattr(self, 'ai_search_thread') and self.ai_search_thread and self.ai_search_thread.isRunning():
+            self.ai_search_thread.quit()
+            self.ai_search_thread.wait(500)
+
         # 关闭工作线程
         if hasattr(self, 'worker') and self.worker.isRunning():
             self.worker.terminate()
             self.worker.wait()
-        
+
         event.accept()
 
 
