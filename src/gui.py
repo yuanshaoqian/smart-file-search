@@ -1017,9 +1017,6 @@ class MainWindow(QMainWindow):
         else:
             self.ai_status_label.setText("AI: 禁用")
             self.ai_btn.setEnabled(False)
-        else:
-            self.ai_status_label.setText("AI: 禁用")
-            self.ai_btn.setEnabled(False)
     
     def on_search_text_changed(self, text: str):
         """搜索文本变化"""
