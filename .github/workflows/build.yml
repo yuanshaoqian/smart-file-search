@@ -1,4 +1,4 @@
-name: Build Windows Release (Lightweight)
+name: Build Release
 
 on:
   push:
@@ -10,24 +10,25 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  # 构建 Windows 版本
+  build-windows:
     runs-on: windows-latest
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
-        
+
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install pyinstaller
         pip install PyQt6 whoosh python-docx openpyxl PyYAML loguru watchdog chardet
-        
+
     - name: Build executable
       run: |
         pyinstaller --clean --onefile --windowed --name SmartFileSearch `
@@ -53,10 +54,9 @@ jobs:
           --paths src `
           src/main.py
       shell: pwsh
-        
+
     - name: Create portable version (without AI model)
       run: |
-        # 创建便携版目录结构
         New-Item -ItemType Directory -Force -Path dist\SmartFileSearch-Portable
         Copy-Item dist\SmartFileSearch.exe dist\SmartFileSearch-Portable\
         Copy-Item config.yaml dist\SmartFileSearch-Portable\
@@ -65,123 +65,230 @@ jobs:
         New-Item -ItemType Directory -Force -Path dist\SmartFileSearch-Portable\data\models
         New-Item -ItemType Directory -Force -Path dist\SmartFileSearch-Portable\data\indexdir
         New-Item -ItemType Directory -Force -Path dist\SmartFileSearch-Portable\logs
-        
-        # 创建说明文件
-        Set-Content -Path "dist\SmartFileSearch-Portable\使用说明.txt" -Value "Smart File Search 便携版`n`n使用方法：`n1. 双击 SmartFileSearch.exe 启动程序`n2. 或双击 start.bat 查看详细启动信息`n3. AI模型将在首次使用AI功能时自动下载`n4. 所有数据保存在本目录中`n`n特点：`n- 无需安装，解压即用`n- 约80MB（不含AI模型）`n- AI模型按需下载（约1.7GB）"
-        
-        # 打包便携版
-        Compress-Archive -Path dist\SmartFileSearch-Portable -DestinationPath dist\SmartFileSearch-Portable.zip
+
+        Set-Content -Path "dist\SmartFileSearch-Portable\README.txt" -Value "Smart File Search Portable (Windows)`n`nUsage:`n1. Double-click SmartFileSearch.exe to start`n2. Or double-click start.bat for verbose output`n3. AI model will be downloaded on first use`n`nFeatures:`n- No installation required`n- ~80MB (without AI model)`n- AI model on-demand download (~1.7GB)"
+
+        Compress-Archive -Path dist\SmartFileSearch-Portable -DestinationPath dist\SmartFileSearch-Windows-Portable.zip
       shell: pwsh
-        
+
     - name: Create full version (with AI model)
       run: |
-        # 下载AI模型
-        Write-Host "正在下载AI模型..."
+        Write-Host "Downloading AI model..."
         New-Item -ItemType Directory -Force -Path data\models
         Invoke-WebRequest -Uri "https://huggingface.co/TheBloke/phi-2-GGUF/resolve/main/phi-2.Q4_K_M.gguf" -OutFile "data\models\phi-2.Q4_K_M.gguf"
-        
-        # 创建完整版目录结构
+
         New-Item -ItemType Directory -Force -Path dist\SmartFileSearch-Full
         Copy-Item dist\SmartFileSearch.exe dist\SmartFileSearch-Full\
         Copy-Item -Recurse data dist\SmartFileSearch-Full\
         Copy-Item config.yaml dist\SmartFileSearch-Full\
         Copy-Item README.md dist\SmartFileSearch-Full\
         Copy-Item start.bat dist\SmartFileSearch-Full\
-        
-        # 创建说明文件
-        Set-Content -Path "dist\SmartFileSearch-Full\使用说明.txt" -Value "Smart File Search 完整版`n`n使用方法：`n1. 双击 SmartFileSearch.exe 启动程序`n2. 或双击 start.bat 查看详细启动信息`n3. AI模型已包含，可直接使用AI功能`n`n特点：`n- 无需安装，解压即用`n- 包含AI模型（约1.8GB）`n- AI功能立即可用"
-        
-        # 打包完整版
-        Compress-Archive -Path dist\SmartFileSearch-Full -DestinationPath dist\SmartFileSearch-Full.zip
+
+        Set-Content -Path "dist\SmartFileSearch-Full\README.txt" -Value "Smart File Search Full (Windows)`n`nUsage:`n1. Double-click SmartFileSearch.exe to start`n2. Or double-click start.bat for verbose output`n3. AI model included, ready to use`n`nFeatures:`n- No installation required`n- ~1.8GB (with AI model)`n- AI features ready immediately"
+
+        Compress-Archive -Path dist\SmartFileSearch-Full -DestinationPath dist\SmartFileSearch-Windows-Full.zip
       shell: pwsh
-        
-    - name: Upload artifacts
+
+    - name: Upload Windows artifacts
       uses: actions/upload-artifact@v4
       with:
         name: SmartFileSearch-Windows
         path: |
           dist/SmartFileSearch.exe
-          dist/SmartFileSearch-Portable.zip
-          dist/SmartFileSearch-Full.zip
-          
+          dist/SmartFileSearch-Windows-Portable.zip
+          dist/SmartFileSearch-Windows-Full.zip
+
+  # 构建 macOS 版本
+  build-macos:
+    runs-on: macos-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyinstaller
+        pip install PyQt6 whoosh python-docx openpyxl PyYAML loguru watchdog chardet
+
+    - name: Build executable
+      run: |
+        pyinstaller --clean --onefile --windowed --name SmartFileSearch \
+          --add-data "src:src" \
+          --add-data "config.yaml:." \
+          --hidden-import PyQt6.QtCore \
+          --hidden-import PyQt6.QtGui \
+          --hidden-import PyQt6.QtWidgets \
+          --hidden-import PyQt6.sip \
+          --hidden-import whoosh \
+          --hidden-import whoosh.fields \
+          --hidden-import whoosh.index \
+          --hidden-import whoosh.qparser \
+          --hidden-import docx \
+          --hidden-import docx.opc \
+          --hidden-import openpyxl \
+          --hidden-import yaml \
+          --hidden-import loguru \
+          --hidden-import watchdog \
+          --hidden-import watchdog.observers \
+          --hidden-import watchdog.events \
+          --hidden-import chardet \
+          --paths src \
+          src/main.py
+
+    - name: Create portable version (without AI model)
+      run: |
+        mkdir -p dist/SmartFileSearch-Portable
+        cp dist/SmartFileSearch dist/SmartFileSearch-Portable/
+        cp config.yaml dist/SmartFileSearch-Portable/
+        cp README.md dist/SmartFileSearch-Portable/
+        cp start.sh dist/SmartFileSearch-Portable/ 2>/dev/null || echo "#!/bin/bash" > dist/SmartFileSearch-Portable/start.sh && echo "./SmartFileSearch" >> dist/SmartFileSearch-Portable/start.sh
+        chmod +x dist/SmartFileSearch-Portable/start.sh
+        mkdir -p dist/SmartFileSearch-Portable/data/models
+        mkdir -p dist/SmartFileSearch-Portable/data/indexdir
+        mkdir -p dist/SmartFileSearch-Portable/logs
+
+        cat > dist/SmartFileSearch-Portable/README.txt << 'EOF'
+        Smart File Search Portable (macOS)
+
+        Usage:
+        1. Double-click SmartFileSearch to start
+        2. Or run ./start.sh in terminal for verbose output
+        3. AI model will be downloaded on first use
+
+        Features:
+        - No installation required
+        - ~80MB (without AI model)
+        - AI model on-demand download (~1.7GB)
+        EOF
+
+        cd dist && zip -r SmartFileSearch-macOS-Portable.zip SmartFileSearch-Portable
+
+    - name: Create full version (with AI model)
+      run: |
+        echo "Downloading AI model..."
+        mkdir -p data/models
+        curl -L "https://huggingface.co/TheBloke/phi-2-GGUF/resolve/main/phi-2.Q4_K_M.gguf" -o "data/models/phi-2.Q4_K_M.gguf"
+
+        mkdir -p dist/SmartFileSearch-Full
+        cp dist/SmartFileSearch dist/SmartFileSearch-Full/
+        cp -r data dist/SmartFileSearch-Full/
+        cp config.yaml dist/SmartFileSearch-Full/
+        cp README.md dist/SmartFileSearch-Full/
+        cp start.sh dist/SmartFileSearch-Full/ 2>/dev/null || echo "#!/bin/bash" > dist/SmartFileSearch-Full/start.sh && echo "./SmartFileSearch" >> dist/SmartFileSearch-Full/start.sh
+        chmod +x dist/SmartFileSearch-Full/start.sh
+
+        cat > dist/SmartFileSearch-Full/README.txt << 'EOF'
+        Smart File Search Full (macOS)
+
+        Usage:
+        1. Double-click SmartFileSearch to start
+        2. Or run ./start.sh in terminal for verbose output
+        3. AI model included, ready to use
+
+        Features:
+        - No installation required
+        - ~1.8GB (with AI model)
+        - AI features ready immediately
+        EOF
+
+        cd dist && zip -r SmartFileSearch-macOS-Full.zip SmartFileSearch-Full
+
+    - name: Upload macOS artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: SmartFileSearch-macOS
+        path: |
+          dist/SmartFileSearch
+          dist/SmartFileSearch-macOS-Portable.zip
+          dist/SmartFileSearch-macOS-Full.zip
+
+  # 创建发布
+  create-release:
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Extract changelog for current version
+      id: changelog
+      run: |
+        # 从 tag 中提取版本号 (去掉 v 前缀)
+        VERSION="${GITHUB_REF_NAME#v}"
+
+        # 提取当前版本的更新内容
+        CHANGELOG=""
+
+        # 读取 CHANGELOG.md
+        if [ -f "CHANGELOG.md" ]; then
+          # 找到当前版本的位置，提取到下一个版本标题之前的内容
+          CHANGELOG=$(sed -n "/^## \[${VERSION}\]/,/^## \[/p" CHANGELOG.md | sed '$d' | sed '1d')
+
+          # 如果没找到带方括号的版本号，尝试其他格式
+          if [ -z "$CHANGELOG" ]; then
+            CHANGELOG=$(sed -n "/^## \[v${VERSION}\]/,/^## \[/p" CHANGELOG.md | sed '$d' | sed '1d')
+          fi
+
+          # 尝试不带方括号的格式
+          if [ -z "$CHANGELOG" ]; then
+            CHANGELOG=$(sed -n "/^## ${VERSION}/,/^## /p" CHANGELOG.md | sed '$d' | sed '1d')
+          fi
+        fi
+
+        # 如果 CHANGELOG 为空，使用默认内容
+        if [ -z "$CHANGELOG" ]; then
+          CHANGELOG="请查看 CHANGELOG.md 获取更新详情。"
+        fi
+
+        # 保存到文件（避免多行字符串问题）
+        echo "$CHANGELOG" > /tmp/changelog.txt
+
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+    - name: Download Windows artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: SmartFileSearch-Windows
+        path: dist/windows
+
+    - name: Download macOS artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: SmartFileSearch-macOS
+        path: dist/macos
+
+    - name: Prepare release files
+      run: |
+        mkdir -p release
+        cp dist/windows/SmartFileSearch.exe release/
+        cp dist/windows/SmartFileSearch-Windows-Portable.zip release/
+        cp dist/windows/SmartFileSearch-Windows-Full.zip release/
+        cp dist/macos/SmartFileSearch release/SmartFileSearch-macOS
+        cp dist/macos/SmartFileSearch-macOS-Portable.zip release/
+        cp dist/macos/SmartFileSearch-macOS-Full.zip release/
+
     - name: Create Release
       uses: softprops/action-gh-release@v2
-      if: startsWith(github.ref, 'refs/tags/')
       with:
         name: Smart File Search ${{ github.ref_name }}
-        body: |
-          # Smart File Search ${{ github.ref_name }}
-          
-          ## 📦 下载选项
-          
-          ### 🚀 便携版（推荐）
-          - **文件**: `SmartFileSearch-Portable.zip`
-          - **大小**: 约 80MB
-          - **特点**: 
-            - 无需安装，解压即用
-            - AI模型按需下载（首次使用AI功能时）
-            - 适合低配置电脑
-          
-          ### 📦 完整版
-          - **文件**: `SmartFileSearch-Full.zip`
-          - **大小**: 约 1.8GB
-          - **特点**:
-            - 包含AI模型
-            - AI功能立即可用
-            - 适合高配置电脑
-          
-          ### ⚡ 单文件版
-          - **文件**: `SmartFileSearch.exe`
-          - **大小**: 约 80MB
-          - **特点**:
-            - 单个可执行文件
-            - 需要手动配置
-            - 适合高级用户
-          
-          ## 🚀 快速开始
-          
-          ### 便携版/完整版使用方法
-          1. 下载对应的 zip 文件
-          2. 解压到任意目录
-          3. 双击 `SmartFileSearch.exe` 运行
-          
-          ### 单文件版使用方法
-          1. 下载 `SmartFileSearch.exe`
-          2. 双击运行
-          3. 首次运行会自动创建必要目录
-          
-          ## 📦 功能特性
-          
-          - ✅ 快速文件索引（Whoosh）
-          - ✅ 启动画面显示加载进度
-          - ✅ 多线程处理，界面流畅
-          - ✅ 支持Word/Excel/TXT
-          - ✅ PyQt6现代化界面
-          - ✅ AI自然语言搜索（可选）
-          
-          ## 💡 版本区别
-          
-          | 版本 | 大小 | AI模型 | 适用场景 |
-          |------|------|--------|---------|
-          | 便携版 | 80MB | 按需下载 | 低配置、快速试用 |
-          | 完整版 | 1.8GB | 已包含 | 高配置、离线使用 |
-          | 单文件 | 80MB | 按需下载 | 高级用户 |
-          
-          ## ⚙️ 系统要求
-          
-          - **操作系统**: Windows 10/11
-          - **内存**: 4GB（无AI）/ 8GB（有AI）
-          - **磁盘空间**: 100MB（无AI）/ 2GB（有AI）
-          
-          ## 📚 文档
-          
-          - [使用说明](docs/USAGE.md)
-          - [配置指南](docs/QUICK_SETUP.md)
-          - [低配置优化](docs/LOW_SPEC_GUIDE.md)
-          
+        body_path: /tmp/changelog.txt
+        draft: false
+        prerelease: false
         files: |
-          dist/SmartFileSearch.exe
-          dist/SmartFileSearch-Portable.zip
-          dist/SmartFileSearch-Full.zip
+          release/SmartFileSearch.exe
+          release/SmartFileSearch-Windows-Portable.zip
+          release/SmartFileSearch-Windows-Full.zip
+          release/SmartFileSearch-macOS
+          release/SmartFileSearch-macOS-Portable.zip
+          release/SmartFileSearch-macOS-Full.zip
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
