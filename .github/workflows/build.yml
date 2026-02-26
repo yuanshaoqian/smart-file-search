@@ -71,24 +71,6 @@ jobs:
         Compress-Archive -Path dist\SmartFileSearch-Portable -DestinationPath dist\SmartFileSearch-Windows-Portable.zip
       shell: pwsh
 
-    - name: Create full version
-      run: |
-        Write-Host "Downloading AI model..."
-        New-Item -ItemType Directory -Force -Path data\models
-        Invoke-WebRequest -Uri "https://huggingface.co/TheBloke/phi-2-GGUF/resolve/main/phi-2.Q4_K_M.gguf" -OutFile "data\models\phi-2.Q4_K_M.gguf"
-
-        New-Item -ItemType Directory -Force -Path dist\SmartFileSearch-Full
-        Copy-Item dist\SmartFileSearch.exe dist\SmartFileSearch-Full\
-        Copy-Item -Recurse data dist\SmartFileSearch-Full\
-        Copy-Item config.yaml dist\SmartFileSearch-Full\
-        Copy-Item README.md dist\SmartFileSearch-Full\
-        Copy-Item start.bat dist\SmartFileSearch-Full\
-
-        Set-Content -Path "dist\SmartFileSearch-Full\README.txt" -Value "Smart File Search Full (Windows)`n`nUsage:`n1. Double-click SmartFileSearch.exe to start`n2. Or double-click start.bat for verbose output`n3. AI model included, ready to use`n`nFeatures:`n- No installation required`n- ~1.8GB (with AI model)`n- AI features ready immediately"
-
-        Compress-Archive -Path dist\SmartFileSearch-Full -DestinationPath dist\SmartFileSearch-Windows-Full.zip
-      shell: pwsh
-
     - name: Upload Windows artifacts
       uses: actions/upload-artifact@v4
       with:
@@ -96,7 +78,6 @@ jobs:
         path: |
           dist/SmartFileSearch.exe
           dist/SmartFileSearch-Windows-Portable.zip
-          dist/SmartFileSearch-Windows-Full.zip
 
   # 构建 macOS 版本 (Apple Silicon)
   build-macos:
@@ -156,34 +137,15 @@ jobs:
 
         printf 'Smart File Search Portable (macOS Apple Silicon)\n\nUsage:\n1. Double-click SmartFileSearch to start\n2. Or run ./start.sh in terminal for verbose output\n3. AI model will be downloaded on first use\n\nFeatures:\n- No installation required\n- ~80MB (without AI model)\n- For Apple Silicon Macs (M1/M2/M3)\n' > dist/SmartFileSearch-Portable/README.txt
 
-        cd dist && zip -r SmartFileSearch-macOS-AppleSilicon-Portable.zip SmartFileSearch-Portable
-
-    - name: Create full version
-      run: |
-        echo "Downloading AI model..."
-        mkdir -p data/models
-        curl -L "https://huggingface.co/TheBloke/phi-2-GGUF/resolve/main/phi-2.Q4_K_M.gguf" -o "data/models/phi-2.Q4_K_M.gguf"
-
-        mkdir -p dist/SmartFileSearch-Full
-        cp dist/SmartFileSearch dist/SmartFileSearch-Full/
-        cp -r data dist/SmartFileSearch-Full/
-        cp config.yaml dist/SmartFileSearch-Full/
-        cp README.md dist/SmartFileSearch-Full/
-        printf '#!/bin/bash\n./SmartFileSearch\n' > dist/SmartFileSearch-Full/start.sh
-        chmod +x dist/SmartFileSearch-Full/start.sh
-
-        printf 'Smart File Search Full (macOS Apple Silicon)\n\nUsage:\n1. Double-click SmartFileSearch to start\n2. Or run ./start.sh in terminal for verbose output\n3. AI model included, ready to use\n\nFeatures:\n- No installation required\n- ~1.8GB (with AI model)\n- For Apple Silicon Macs (M1/M2/M3)\n' > dist/SmartFileSearch-Full/README.txt
-
-        cd dist && zip -r SmartFileSearch-macOS-AppleSilicon-Full.zip SmartFileSearch-Full
+        cd dist && zip -r SmartFileSearch-macOS-Portable.zip SmartFileSearch-Portable
 
     - name: Upload macOS artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: SmartFileSearch-macOS-AppleSilicon
+        name: SmartFileSearch-macOS
         path: |
           dist/SmartFileSearch
-          dist/SmartFileSearch-macOS-AppleSilicon-Portable.zip
-          dist/SmartFileSearch-macOS-AppleSilicon-Full.zip
+          dist/SmartFileSearch-macOS-Portable.zip
 
   # 创建发布
   create-release:
@@ -227,7 +189,7 @@ jobs:
     - name: Download macOS artifacts
       uses: actions/download-artifact@v4
       with:
-        name: SmartFileSearch-macOS-AppleSilicon
+        name: SmartFileSearch-macOS
         path: dist/macos
 
     - name: Prepare release files
@@ -235,10 +197,8 @@ jobs:
         mkdir -p release
         cp dist/windows/SmartFileSearch.exe release/
         cp dist/windows/SmartFileSearch-Windows-Portable.zip release/
-        cp dist/windows/SmartFileSearch-Windows-Full.zip release/
         cp dist/macos/SmartFileSearch release/SmartFileSearch-macOS
-        cp dist/macos/SmartFileSearch-macOS-AppleSilicon-Portable.zip release/
-        cp dist/macos/SmartFileSearch-macOS-AppleSilicon-Full.zip release/
+        cp dist/macos/SmartFileSearch-macOS-Portable.zip release/
 
     - name: Create Release
       uses: softprops/action-gh-release@v2
@@ -250,9 +210,7 @@ jobs:
         files: |
           release/SmartFileSearch.exe
           release/SmartFileSearch-Windows-Portable.zip
-          release/SmartFileSearch-Windows-Full.zip
           release/SmartFileSearch-macOS
-          release/SmartFileSearch-macOS-AppleSilicon-Portable.zip
-          release/SmartFileSearch-macOS-AppleSilicon-Full.zip
+          release/SmartFileSearch-macOS-Portable.zip
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
