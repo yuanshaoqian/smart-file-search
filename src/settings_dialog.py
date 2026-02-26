@@ -273,9 +273,7 @@ class SettingsDialog(QDialog):
         if lang_index >= 0:
             self.lang_combo.setCurrentIndex(lang_index)
         
-        self.auto_update_check.setChecked(
-            getattr(self.config, 'update_check', {}).get('enabled', True)
-        )
+        self.auto_update_check.setChecked(self.config.update_check.enabled)
         
         # 索引
         self.dir_list.clear()
@@ -325,6 +323,7 @@ class SettingsDialog(QDialog):
         try:
             # 常规
             self.config.language = self.lang_combo.currentData()
+            self.config.update_check.enabled = self.auto_update_check.isChecked()
 
             # 索引
             self.config.index.directories = [

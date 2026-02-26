@@ -38,6 +38,9 @@ from .config import get_config
 class IndexProgressDialog(QDialog):
     """索引进度对话框 - 显示详细的索引进度信息"""
 
+    # 取消信号
+    cancelled = pyqtSignal()
+
     def __init__(self, title: str, parent=None):
         super().__init__(parent)
         self.setWindowTitle(title)
@@ -168,13 +171,21 @@ class IndexProgressDialog(QDialog):
 
     def cancel(self):
         """取消操作"""
+        if self._was_cancelled:
+            return
         self._was_cancelled = True
         self.status_label.setText("正在取消...")
         self.cancel_btn.setEnabled(False)
+        self.cancelled.emit()
 
     def was_cancelled(self) -> bool:
         """检查是否被取消"""
         return self._was_cancelled
+
+    def close_with_cancel(self):
+        """取消并关闭对话框"""
+        self._was_cancelled = True
+        self.reject()
 
 
 class WorkerThread(QThread):
@@ -285,17 +296,28 @@ class SearchResultTable(QTableWidget):
     
     def on_double_click(self, row: int, column: int):
         """双击事件处理"""
-        item = self.item(row, 0)
-        if item:
-            result = item.data(Qt.ItemDataRole.UserRole)
-            if result:
-                path = result.get('path', '')
-                self.open_file(path)
-    
+        try:
+            item = self.item(row, 0)
+            if item:
+                result = item.data(Qt.ItemDataRole.UserRole)
+                if result:
+                    path = result.get('path', '')
+                    self.open_file(path)
+        except Exception as e:
+            from loguru import logger
+            logger.error(f"双击打开文件失败: {e}")
+
     def open_file(self, path: str):
         """打开文件"""
-        if path and Path(path).exists():
-            QDesktopServices.openUrl(Path(path).as_uri())
+        try:
+            if path and Path(path).exists():
+                QDesktopServices.openUrl(Path(path).as_uri())
+            else:
+                from loguru import logger
+                logger.warning(f"文件不存在: {path}")
+        except Exception as e:
+            from loguru import logger
+            logger.error(f"打开文件失败 {path}: {e}")
     
     def get_selected_file(self) -> Optional[Dict[str, Any]]:
         """获取选中的文件"""
@@ -844,18 +866,26 @@ class MainWindow(QMainWindow):
                     background-color: #2b2b2b;
                     border: 1px solid #555;
                     gridline-color: #444;
+                    color: #ffffff;
                 }
                 QTableWidget::item {
                     padding: 5px;
+                    color: #ffffff;
                 }
                 QTableWidget::item:selected {
                     background-color: #0078d4;
+                    color: #ffffff;
+                }
+                QTableWidget::item:alternate {
+                    background-color: #333333;
+                    color: #ffffff;
                 }
                 QHeaderView::section {
                     background-color: #3c3c3c;
                     padding: 5px;
                     border: 1px solid #555;
                     font-weight: bold;
+                    color: #ffffff;
                 }
                 QComboBox {
                     background-color: #3c3c3c;
@@ -1175,12 +1205,16 @@ class MainWindow(QMainWindow):
         progress_dialog = IndexProgressDialog(title, self)
         progress_dialog.show()
 
+        # 取消标志
+        cancel_flag = [False]  # 使用列表以便在闭包中修改
+
         # 进度回调函数
         def progress_callback(current, total, filename, status):
             """索引进度回调"""
-            if progress_dialog.was_cancelled():
-                return
+            if cancel_flag[0] or progress_dialog.was_cancelled():
+                return False  # 返回 False 表示应该取消
             self.worker.progress.emit(current, total, filename, status)
+            return True
 
         def index_task():
             return self.indexer.create_index(
@@ -1192,7 +1226,19 @@ class MainWindow(QMainWindow):
         # 使用工作线程
         self.worker = WorkerThread(index_task)
 
+        # 取消处理函数
+        def on_cancel():
+            cancel_flag[0] = True
+            # 等待线程结束（最多等待2秒）
+            if not self.worker.wait(2000):
+                # 如果线程不结束，强制终止
+                self.worker.terminate()
+                self.worker.wait(500)
+            progress_dialog.close_with_cancel()
+            self.status_label.setText("索引已取消")
+
         # 连接信号
+        progress_dialog.cancelled.connect(on_cancel)
         self.worker.progress.connect(
             lambda curr, total, fname, status: progress_dialog.update_progress(curr, total, fname, status)
         )
@@ -1206,6 +1252,12 @@ class MainWindow(QMainWindow):
         progress.close()
 
         self.update_status()
+
+        # 检查是否被取消
+        if stats.get('cancelled', False):
+            duration = stats.get('duration', 0)
+            self.status_label.setText("索引已取消")
+            return
 
         # 显示完成信息
         duration = stats.get('duration', 0)

@@ -19,7 +19,7 @@ import whoosh
 from whoosh import index
 from whoosh.fields import Schema, TEXT, KEYWORD, ID, DATETIME, NUMERIC
 from whoosh.qparser import QueryParser, MultifieldParser, OrGroup, FuzzyTermPlugin
-from whoosh.query import Every, Term, And, Or, Not, DateRange, NumericRange
+from whoosh.query import Every, Term, And, Or, Not, DateRange, NumericRange, FuzzyTerm, Wildcard, Prefix
 from whoosh.writing import AsyncWriter
 from loguru import logger
 
@@ -210,6 +210,7 @@ class FileIndexer:
             root_paths: 要索引的根目录列表
             incremental: 是否增量更新（只更新变化文件）
             progress_callback: 进度回调函数，签名为 callback(current, total, filename, status)
+                              返回 False 表示应该取消操作
 
         Returns:
             统计信息
@@ -222,13 +223,24 @@ class FileIndexer:
             'start_time': time.time(),
             'end_time': None,
             'directories': root_paths,
+            'cancelled': False,
         }
 
         self.logger.info(f"开始{'增量' if incremental else '全量'}索引: {root_paths}")
 
+        def check_cancel():
+            """检查是否应该取消"""
+            if progress_callback:
+                result = progress_callback(0, 0, "", "")
+                return result is False
+            return False
+
         # 收集所有文件
         if progress_callback:
-            progress_callback(0, 0, "", "正在扫描目录...")
+            result = progress_callback(0, 0, "", "正在扫描目录...")
+            if result is False:
+                stats['cancelled'] = True
+                return stats
 
         all_files = []
         for root_path in root_paths:
@@ -242,7 +254,10 @@ class FileIndexer:
                     all_files.append(str(file_path))
                     # 报告扫描进度
                     if progress_callback and len(all_files) % 50 == 0:
-                        progress_callback(0, len(all_files), str(file_path), "正在扫描文件...")
+                        result = progress_callback(0, len(all_files), str(file_path), "正在扫描文件...")
+                        if result is False:
+                            stats['cancelled'] = True
+                            return stats
 
         stats['total_files'] = len(all_files)
         self.logger.info(f"找到 {stats['total_files']} 个文件")
@@ -251,7 +266,10 @@ class FileIndexer:
         files_to_index = all_files
         if incremental and self.ix.reader().doc_count() > 0:
             if progress_callback:
-                progress_callback(0, len(all_files), "", "正在检查文件变化...")
+                result = progress_callback(0, len(all_files), "", "正在检查文件变化...")
+                if result is False:
+                    stats['cancelled'] = True
+                    return stats
             files_to_index = self._get_changed_files(all_files)
             self.logger.info(f"增量更新: {len(files_to_index)} 个文件需要更新")
 
@@ -259,7 +277,10 @@ class FileIndexer:
         files_to_process = len(files_to_index)
         if progress_callback:
             mode_text = "增量索引" if incremental else "全量索引"
-            progress_callback(0, files_to_process, "", f"准备{mode_text}...")
+            result = progress_callback(0, files_to_process, "", f"准备{mode_text}...")
+            if result is False:
+                stats['cancelled'] = True
+                return stats
 
         # 使用线程池并行处理文件
         writer = AsyncWriter(self.ix)
@@ -274,6 +295,15 @@ class FileIndexer:
         for future in as_completed(futures):
             file_path = futures[future]
 
+            # 检查是否取消
+            if check_cancel():
+                # 取消未完成的任务
+                for f in futures:
+                    if not f.done():
+                        f.cancel()
+                stats['cancelled'] = True
+                break
+
             try:
                 doc = future.result(timeout=30)
                 if doc:
@@ -286,12 +316,19 @@ class FileIndexer:
                     # 报告进度
                     completed_count += 1
                     if progress_callback and completed_count % 10 == 0:
-                        progress_callback(
+                        result = progress_callback(
                             completed_count,
                             files_to_process,
                             file_path,
                             f"已索引 {completed_count}/{files_to_process} 个文件"
                         )
+                        if result is False:
+                            # 取消未完成的任务
+                            for f in futures:
+                                if not f.done():
+                                    f.cancel()
+                            stats['cancelled'] = True
+                            break
                 else:
                     stats['skipped_files'] += 1
                     completed_count += 1
@@ -310,21 +347,25 @@ class FileIndexer:
                         f"索引失败: {Path(file_path).name}"
                     )
 
-        # 提交更改
-        if progress_callback:
-            progress_callback(files_to_process, files_to_process, "", "正在提交索引...")
-        writer.commit()
+        # 提交更改（只有未取消时才提交）
+        if not stats['cancelled']:
+            if progress_callback:
+                progress_callback(files_to_process, files_to_process, "", "正在提交索引...")
+            writer.commit()
 
         stats['end_time'] = time.time()
         stats['duration'] = stats['end_time'] - stats['start_time']
 
-        self.logger.info(
-            f"索引完成: 处理 {stats['total_files']} 个文件, "
-            f"成功 {stats['indexed_files']} 个, "
-            f"跳过 {stats['skipped_files']} 个, "
-            f"失败 {stats['failed_files']} 个, "
-            f"耗时 {stats['duration']:.2f} 秒"
-        )
+        if stats['cancelled']:
+            self.logger.info(f"索引已取消: 已索引 {stats['indexed_files']} 个文件")
+        else:
+            self.logger.info(
+                f"索引完成: 处理 {stats['total_files']} 个文件, "
+                f"成功 {stats['indexed_files']} 个, "
+                f"跳过 {stats['skipped_files']} 个, "
+                f"失败 {stats['failed_files']} 个, "
+                f"耗时 {stats['duration']:.2f} 秒"
+            )
 
         return stats
     
@@ -374,38 +415,90 @@ class FileIndexer:
     def search(self, query_str: str, limit: int = 100, filters: Optional[Dict] = None) -> List[Dict[str, Any]]:
         """
         搜索文件
-        
+
         Args:
             query_str: 搜索查询字符串
             limit: 结果数量限制
             filters: 过滤条件字典
-            
+
         Returns:
             搜索结果列表
         """
         if not self.ix:
             self._open_index()
-        
+
         filters = filters or {}
         results = []
-        
+
         with self.ix.searcher() as searcher:
+            # 检查是否启用模糊搜索
+            use_fuzzy = filters.get('fuzzy', True)
+
             # 创建查询解析器
             parser = MultifieldParser(
                 ['filename', 'content', 'path', 'extension'],
                 schema=self.schema,
                 group=OrGroup
             )
-            
+
             # 添加模糊搜索插件
             parser.add_plugin(FuzzyTermPlugin())
-            
+
             # 解析查询
             try:
                 query = parser.parse(query_str)
             except Exception as e:
                 self.logger.error(f"解析查询失败 '{query_str}': {e}")
                 return []
+
+            # 如果启用模糊搜索且原始查询不包含模糊语法，自动转换为模糊查询
+            if use_fuzzy and '~' not in query_str:
+                try:
+                    # 尝试构建多种查询组合以获得更好的模糊匹配效果
+                    fuzzy_terms = []
+
+                    # 1. 对原始查询进行通配符和前缀匹配
+                    # 处理带点号的版本号 (如 10.127)
+                    if '.' in query_str:
+                        # 添加通配符匹配（支持部分匹配）
+                        wildcard_terms = []
+                        prefix_terms = []
+                        for field in ['filename', 'content', 'path']:
+                            # 支持前缀匹配：10.12 可以匹配 10.12, 10.123, 10.127 等
+                            wildcard_terms.append(Wildcard(field, f"{query_str}*"))
+                            prefix_terms.append(Prefix(field, query_str))
+                        if wildcard_terms:
+                            fuzzy_terms.append(Or(wildcard_terms))
+                        if prefix_terms:
+                            fuzzy_terms.append(Or(prefix_terms))
+
+                    # 2. 分词后进行模糊匹配
+                    terms = query_str.split()
+                    for term in terms:
+                        if len(term) > 2:  # 只对长度大于2的词进行模糊匹配
+                            term_queries = []
+                            for field in ['filename', 'content', 'path']:
+                                # 使用不同距离的模糊查询
+                                term_queries.append(FuzzyTerm(field, term, maxdist=1))
+                                term_queries.append(FuzzyTerm(field, term, maxdist=2))
+                            if term_queries:
+                                fuzzy_terms.append(Or(term_queries))
+                        else:
+                            # 短词使用常规查询
+                            term_queries = []
+                            for field in ['filename', 'content', 'path']:
+                                term_queries.append(Term(field, term))
+                            if term_queries:
+                                fuzzy_terms.append(Or(term_queries))
+
+                    # 组合所有模糊查询
+                    if fuzzy_terms:
+                        fuzzy_query = Or(fuzzy_terms)
+                        # 同时保留原始查询，组合两者以获得更好的结果
+                        query = Or([query, fuzzy_query])
+                except Exception as e:
+                    self.logger.debug(f"构建模糊查询失败，使用原始查询: {e}")
+                    # 如果模糊查询构建失败，继续使用原始查询
             
             # 应用过滤条件
             if filters:
