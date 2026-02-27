@@ -1,4 +1,4 @@
-# 打包专用依赖（Windows 环境）
+# 打包专用依赖
 # 核心依赖
 PyQt6>=6.5.0
 whoosh>=2.7.4
@@ -7,24 +7,18 @@ openpyxl>=3.1.2
 PyYAML>=6.0
 loguru>=0.7.2
 watchdog>=3.0.0
+chardet>=5.2.0
 
 # AI 功能（集成到打包应用中）
 # 用户只需提供 GGUF 模型文件
+# 注意：llama-cpp-python 需要预编译 wheel 或从源码编译
 llama-cpp-python>=0.2.23
-numpy>=1.24.0  # llama-cpp-python 依赖
-typing_extensions>=4.5.0  # 类型支持
-diskcache>=5.6.0  # 可选缓存
+numpy>=1.24.0
+typing_extensions>=4.5.0
 
-# 其他工具
-chardet>=5.2.0  # 编码检测
-pandas>=2.0.0   # 数据处理（未来可能用到）
-python-magic>=0.4.27  # 文件类型检测
-
-# PyInstaller 需要的运行时钩子依赖
-pyinstaller>=5.13.0
-pyinstaller-hooks-contrib>=2023.10
+# PyInstaller 需要的依赖
+pyinstaller>=6.0.0
+pyinstaller-hooks-contrib>=2024.0
 
 # Windows 特定依赖
 pywin32>=306; sys_platform == "win32"
-
-# 确保包含所有必要的库

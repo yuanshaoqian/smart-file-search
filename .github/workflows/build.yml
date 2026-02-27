@@ -23,10 +23,19 @@ jobs:
       with:
         python-version: '3.10'
 
-    - name: Install dependencies
+    - name: Install core dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements-exe.txt
+        pip install PyQt6 whoosh python-docx openpyxl PyYAML loguru watchdog chardet pywin32
+        pip install pyinstaller pyinstaller-hooks-contrib
+
+    - name: Install llama-cpp-python (CPU version)
+      run: |
+        # Try precompiled wheel first, fallback to source build
+        pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu || \
+        pip install llama-cpp-python --no-binary :all:
+      shell: pwsh
+      continue-on-error: true
 
     - name: Build executable with PyInstaller
       run: |
@@ -88,10 +97,19 @@ Features:
       with:
         python-version: '3.10'
 
-    - name: Install dependencies
+    - name: Install core dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements-exe.txt
+        pip install PyQt6 whoosh python-docx openpyxl PyYAML loguru watchdog chardet
+        pip install pyinstaller pyinstaller-hooks-contrib
+
+    - name: Install llama-cpp-python (Metal version for Apple Silicon)
+      run: |
+        # Try Metal-enabled wheel first, fallback to CPU version
+        CMAKE_ARGS="-DLLAMA_METAL=on" pip install llama-cpp-python --no-cache-dir || \
+        pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu || \
+        pip install llama-cpp-python --no-binary :all:
+      continue-on-error: true
 
     - name: Build executable with PyInstaller
       run: |

@@ -73,9 +73,6 @@ hidden_imports = [
     'PyQt6.QtCore',
     'PyQt6.QtGui',
     'PyQt6.QtWidgets',
-    'PyQt6.QtNetwork',
-    'PyQt6.QtWebEngineCore',
-    'PyQt6.QtWebEngineWidgets',
     'PyQt6.sip',
     'whoosh',
     'whoosh.fields',
@@ -102,19 +99,10 @@ hidden_imports = [
     'llama_cpp.llama_grammar',
     'llama_cpp.llama_cache',
     'llama_cpp.llama_chat_format',
-    'llama_cpp.llama_speculative',
-    'llama_cpp._internals',
-    'llama_cpp._utils',
     # Other dependencies
     'chardet',
-    'pandas',
-    'magic',
     'sqlite3',
     'typing_extensions',
-    'cached_property',
-    'diskcache',
-    'jinja2',
-    'markupsafe',
 ]
 
 # Hook directories
