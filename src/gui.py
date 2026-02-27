@@ -1481,11 +1481,18 @@ class MainWindow(QMainWindow):
             self.logger.warning("索引正在进行中，跳过")
             return
 
+        # 检查索引器是否存在
+        if not self.indexer:
+            self.logger.error("索引器未初始化")
+            QMessageBox.warning(self, "错误", "索引器未初始化，请重启应用。")
+            return
+
         self._is_indexing = True
 
-        # 开始显示转圈动画
-        self.spinning_indicator.start_spinning()
-        self._update_spinning_indicator_position()
+        # 开始显示转圈动画（如果存在）
+        if hasattr(self, 'spinning_indicator') and self.spinning_indicator:
+            self.spinning_indicator.start_spinning()
+            self._update_spinning_indicator_position()
 
         # 重置统计信息
         self._index_stats = {
@@ -1520,7 +1527,8 @@ class MainWindow(QMainWindow):
             self._index_stats['status'] = status
 
             # 发送信号更新UI
-            self.worker.progress.emit(current, total, filename, status)
+            if hasattr(self, 'worker') and self.worker:
+                self.worker.progress.emit(current, total, filename, status)
             return True
 
         def index_task():
@@ -1542,10 +1550,11 @@ class MainWindow(QMainWindow):
         def on_cancel():
             cancel_flag[0] = True
             # 等待线程结束（最多等待2秒）
-            if not self.worker.wait(2000):
-                # 如果线程不结束，强制终止
-                self.worker.terminate()
-                self.worker.wait(500)
+            if hasattr(self, 'worker') and self.worker and self.worker.isRunning():
+                if not self.worker.wait(2000):
+                    # 如果线程不结束，强制终止
+                    self.worker.terminate()
+                    self.worker.wait(500)
             progress_dialog.close_with_cancel()
             self.status_label.setText("索引已取消")
 
@@ -1583,10 +1592,13 @@ class MainWindow(QMainWindow):
         if progress_dialog.isVisible():
             progress_dialog.update_stats(indexed, skipped, failed)
 
-    def _on_index_complete(self, stats: Dict, progress: IndexProgressDialog, show_dialog: bool = True):
+    def _on_index_complete(self, stats: Dict, progress_dialog: IndexProgressDialog, show_dialog: bool = True):
         """索引完成"""
         self._is_indexing = False
-        self.spinning_indicator.stop_spinning()
+
+        # 停止转圈动画（如果存在）
+        if hasattr(self, 'spinning_indicator') and self.spinning_indicator:
+            self.spinning_indicator.stop_spinning()
 
         # 关闭进度对话框
         if progress_dialog:
@@ -1626,10 +1638,13 @@ class MainWindow(QMainWindow):
 
         self.status_label.setText(f"索引完成 ({stats.get('indexed_files', 0)} 个文件)")
 
-    def _on_index_error(self, error: str, progress: IndexProgressDialog, show_dialog: bool = True):
+    def _on_index_error(self, error: str, progress_dialog: IndexProgressDialog, show_dialog: bool = True):
         """索引错误"""
         self._is_indexing = False
-        self.spinning_indicator.stop_spinning()
+
+        # 停止转圈动画（如果存在）
+        if hasattr(self, 'spinning_indicator') and self.spinning_indicator:
+            self.spinning_indicator.stop_spinning()
 
         # 关闭进度对话框
         if progress_dialog:
@@ -1727,6 +1742,14 @@ class MainWindow(QMainWindow):
     
     def show_ai_settings(self):
         """显示 AI 设置对话框"""
+        # 确保 AI 引擎已初始化
+        if not self.ai_engine:
+            try:
+                from .ai_engine import get_ai_engine
+            except ImportError:
+                from ai_engine import get_ai_engine
+            self.ai_engine = get_ai_engine(self.config)
+
         try:
             from .ai_setup_dialog import AISetupDialog
         except ImportError:
@@ -1755,6 +1778,8 @@ class MainWindow(QMainWindow):
 
         except Exception as e:
             self.logger.error(f"打开 AI 设置对话框失败: {e}")
+            import traceback
+            self.logger.debug(traceback.format_exc())
             # 回退到简单信息框
             QMessageBox.information(
                 self,
