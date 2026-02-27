@@ -230,11 +230,16 @@ fi
 # 检查 llama-cpp-python
 echo
 echo -e "${BLUE}检查AI依赖...${NC}"
-if ! python3 -c "import llama_cpp" 2>/dev/null; then
+
+# 检查是否在打包环境中运行
+if [ -f "$PROJECT_DIR/SmartFileSearch.exe" ] || [ -f "$PROJECT_DIR/dist/SmartFileSearch/SmartFileSearch.exe" ]; then
+    echo -e "${GREEN}✓ 检测到打包应用程序${NC}"
+    echo -e "${GREEN}✓ AI 依赖已集成到可执行文件中${NC}"
+elif ! python3 -c "import llama_cpp" 2>/dev/null; then
     echo -e "${YELLOW}⚠️  未安装 llama-cpp-python${NC}"
     echo -ne "${BLUE}是否现在安装? [Y/n]: ${NC}"
     read install
-    
+
     if [[ ! "$install" =~ ^[Nn]$ ]]; then
         echo -e "${BLUE}正在安装 llama-cpp-python...${NC}"
         pip install llama-cpp-python || {

@@ -95,13 +95,26 @@ hidden_imports = [
     'watchdog',
     'watchdog.observers',
     'watchdog.events',
+    # llama-cpp-python AI engine
     'llama_cpp',
     'llama_cpp.llama',
     'llama_cpp.llama_types',
+    'llama_cpp.llama_grammar',
+    'llama_cpp.llama_cache',
+    'llama_cpp.llama_chat_format',
+    'llama_cpp.llama_speculative',
+    'llama_cpp._internals',
+    'llama_cpp._utils',
+    # Other dependencies
     'chardet',
     'pandas',
     'magic',
     'sqlite3',
+    'typing_extensions',
+    'cached_property',
+    'diskcache',
+    'jinja2',
+    'markupsafe',
 ]
 
 # Hook directories
@@ -110,11 +123,11 @@ hookspath = [str(project_root / 'hooks')]
 # Runtime hooks
 runtime_hooks = [
     str(project_root / 'hooks' / 'pyi_rth_pyqt6.py'),
+    str(project_root / 'hooks' / 'pyi_rth_llama_cpp.py'),
 ]
 
-# Exclude modules to reduce size
+# Exclude modules to reduce size (keep numpy for llama-cpp-python)
 excludes = [
-    'numpy',  # Not used directly
     'scipy',
     'matplotlib',
     'pillow',

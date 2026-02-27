@@ -7,8 +7,10 @@ PyYAML>=6.0
 loguru>=0.7.2
 watchdog>=3.0.0
 
-# AI 功能（可选）
+# AI 功能（可选 - 已集成到打包应用）
 llama-cpp-python>=0.2.23
+numpy>=1.24.0  # llama-cpp-python 依赖
+typing_extensions>=4.5.0  # 类型支持
 
 # 开发依赖（可选）
 pytest>=7.4.0

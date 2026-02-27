@@ -59,7 +59,77 @@ class AIEngine:
 
         # 初始化提示词模板
         self._init_prompt_templates()
-    
+
+    def _resolve_model_path(self) -> Optional[Path]:
+        """
+        解析模型路径，支持多种查找方式
+
+        查找顺序：
+        1. 配置文件中的绝对/相对路径
+        2. 可执行文件所在目录
+        3. 打包后的 _MEIPASS 目录
+        4. 默认 data/models 目录
+
+        Returns:
+            模型文件路径，如果找不到则返回 None
+        """
+        import sys
+
+        # 配置中的模型路径
+        config_path = Path(self.config.ai.model_path).expanduser()
+
+        # 候选路径列表
+        candidates = []
+
+        # 1. 配置路径（如果是绝对路径）
+        if config_path.is_absolute():
+            candidates.append(config_path)
+        else:
+            # 相对路径，基于多个可能的基目录
+            # 获取可执行文件所在目录
+            if getattr(sys, 'frozen', False):
+                # 打包后的环境
+                exe_dir = Path(sys.executable).parent
+                bundle_dir = Path(sys._MEIPASS)
+
+                candidates.append(exe_dir / config_path)
+                candidates.append(bundle_dir / config_path)
+                candidates.append(bundle_dir / 'data' / 'models' / config_path.name)
+            else:
+                # 开发环境
+                project_root = Path(__file__).parent.parent
+                candidates.append(project_root / config_path)
+                candidates.append(project_root / 'data' / 'models' / config_path.name)
+
+            # 也尝试直接解析相对路径
+            candidates.append(config_path)
+
+        # 添加默认搜索路径
+        default_model_name = 'phi-2.Q4_K_M.gguf'
+        if getattr(sys, 'frozen', False):
+            exe_dir = Path(sys.executable).parent
+            bundle_dir = Path(sys._MEIPASS)
+            candidates.extend([
+                exe_dir / 'data' / 'models' / default_model_name,
+                bundle_dir / 'data' / 'models' / default_model_name,
+            ])
+        else:
+            project_root = Path(__file__).parent.parent
+            candidates.append(project_root / 'data' / 'models' / default_model_name)
+
+        # 遍历所有候选路径
+        for path in candidates:
+            if path.exists() and path.is_file():
+                self.logger.info(f"找到模型文件: {path}")
+                return path
+
+        # 列出所有尝试过的路径（用于调试）
+        self.logger.warning(f"模型文件未找到，尝试过的路径:")
+        for path in candidates:
+            self.logger.warning(f"  - {path}")
+
+        return None
+
     def _detect_gpu(self) -> dict:
         """检测可用的GPU"""
         gpu_info = {
@@ -118,25 +188,12 @@ class AIEngine:
         if not self.enabled:
             return False
 
-        model_path = Path(self.config.ai.model_path).expanduser()
+        model_path = self._resolve_model_path()
 
-        # 检查模型文件是否存在
-        if not model_path.exists():
-            self.logger.warning(f"AI 模型文件不存在: {model_path}")
-
-            # 可选：尝试下载模型
-            if self.config.ai.model_url:
-                self.logger.info(f"尝试下载模型: {self.config.ai.model_url}")
-                if self._download_model():
-                    self.logger.info("模型下载成功")
-                else:
-                    self.logger.error("模型下载失败，禁用 AI 功能")
-                    self.enabled = False
-                    return False
-            else:
-                self.logger.error("模型文件不存在且无下载 URL，禁用 AI 功能")
-                self.enabled = False
-                return False
+        if model_path is None:
+            self.logger.error("模型文件不存在，禁用 AI 功能")
+            self.enabled = False
+            return False
 
         try:
             # 动态导入 llama-cpp-python
@@ -188,7 +245,7 @@ class AIEngine:
             self.logger.error(f"加载 AI 模型失败: {e}")
             self.enabled = False
             return False
-    
+
     def _download_model(self) -> bool:
         """下载模型文件"""
         # 这里可以添加模型下载逻辑

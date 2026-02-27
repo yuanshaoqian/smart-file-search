@@ -26,47 +26,43 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pyinstaller
-        pip install PyQt6 whoosh python-docx openpyxl PyYAML loguru watchdog chardet
+        pip install -r requirements-exe.txt
 
-    - name: Build executable
+    - name: Build executable with PyInstaller
       run: |
-        pyinstaller --clean --onefile --windowed --name SmartFileSearch `
-          --add-data "src;src" `
-          --add-data "config.yaml;." `
-          --hidden-import PyQt6.QtCore `
-          --hidden-import PyQt6.QtGui `
-          --hidden-import PyQt6.QtWidgets `
-          --hidden-import PyQt6.sip `
-          --hidden-import whoosh `
-          --hidden-import whoosh.fields `
-          --hidden-import whoosh.index `
-          --hidden-import whoosh.qparser `
-          --hidden-import docx `
-          --hidden-import docx.opc `
-          --hidden-import openpyxl `
-          --hidden-import yaml `
-          --hidden-import loguru `
-          --hidden-import watchdog `
-          --hidden-import watchdog.observers `
-          --hidden-import watchdog.events `
-          --hidden-import chardet `
-          --paths src `
-          src/main.py
+        pyinstaller build.spec --clean --noconfirm
       shell: pwsh
 
     - name: Create portable version
       run: |
         New-Item -ItemType Directory -Force -Path dist\SmartFileSearch-Portable
-        Copy-Item dist\SmartFileSearch.exe dist\SmartFileSearch-Portable\
+        Copy-Item dist\SmartFileSearch\SmartFileSearch.exe dist\SmartFileSearch-Portable\
         Copy-Item config.yaml dist\SmartFileSearch-Portable\
         Copy-Item README.md dist\SmartFileSearch-Portable\
-        Copy-Item start.bat dist\SmartFileSearch-Portable\
+        Copy-Item start.bat dist\SmartFileSearch-Portable\ -ErrorAction SilentlyContinue
         New-Item -ItemType Directory -Force -Path dist\SmartFileSearch-Portable\data\models
         New-Item -ItemType Directory -Force -Path dist\SmartFileSearch-Portable\data\indexdir
         New-Item -ItemType Directory -Force -Path dist\SmartFileSearch-Portable\logs
 
-        Set-Content -Path "dist\SmartFileSearch-Portable\README.txt" -Value "Smart File Search Portable (Windows)`n`nUsage:`n1. Double-click SmartFileSearch.exe to start`n2. Or double-click start.bat for verbose output`n3. AI model will be downloaded on first use`n`nFeatures:`n- No installation required`n- ~80MB (without AI model)`n- AI model on-demand download (~1.7GB)"
+        Set-Content -Path "dist\SmartFileSearch-Portable\README.txt" -Value @"
+Smart File Search Portable (Windows)
+
+Usage:
+1. Double-click SmartFileSearch.exe to start
+2. Or double-click start.bat for verbose output
+
+AI Features:
+- llama-cpp-python is bundled (no additional installation needed)
+- Just place a GGUF model file in data/models/ folder
+- Enable AI in config.yaml: ai.enabled: true
+- Recommended model: Phi-2 Q4_K_M (~1.6GB)
+
+Features:
+- No installation required
+- AI support built-in (just add model)
+- Full-text search with Whoosh
+- Supports PDF, Word, Excel, text files
+"@
 
         Compress-Archive -Path dist\SmartFileSearch-Portable -DestinationPath dist\SmartFileSearch-Windows-Portable.zip
       shell: pwsh
@@ -76,7 +72,7 @@ jobs:
       with:
         name: SmartFileSearch-Windows
         path: |
-          dist/SmartFileSearch.exe
+          dist/SmartFileSearch/SmartFileSearch.exe
           dist/SmartFileSearch-Windows-Portable.zip
 
   # 构建 macOS 版本 (Apple Silicon)
@@ -95,38 +91,16 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pyinstaller
-        pip install PyQt6 whoosh python-docx openpyxl PyYAML loguru watchdog chardet
+        pip install -r requirements-exe.txt
 
-    - name: Build executable
+    - name: Build executable with PyInstaller
       run: |
-        pyinstaller --clean --onefile --windowed --name SmartFileSearch \
-          --add-data "src:src" \
-          --add-data "config.yaml:." \
-          --hidden-import PyQt6.QtCore \
-          --hidden-import PyQt6.QtGui \
-          --hidden-import PyQt6.QtWidgets \
-          --hidden-import PyQt6.sip \
-          --hidden-import whoosh \
-          --hidden-import whoosh.fields \
-          --hidden-import whoosh.index \
-          --hidden-import whoosh.qparser \
-          --hidden-import docx \
-          --hidden-import docx.opc \
-          --hidden-import openpyxl \
-          --hidden-import yaml \
-          --hidden-import loguru \
-          --hidden-import watchdog \
-          --hidden-import watchdog.observers \
-          --hidden-import watchdog.events \
-          --hidden-import chardet \
-          --paths src \
-          src/main.py
+        pyinstaller build.spec --clean --noconfirm
 
     - name: Create portable version
       run: |
         mkdir -p dist/SmartFileSearch-Portable
-        cp dist/SmartFileSearch dist/SmartFileSearch-Portable/
+        cp dist/SmartFileSearch/SmartFileSearch dist/SmartFileSearch-Portable/
         cp config.yaml dist/SmartFileSearch-Portable/
         cp README.md dist/SmartFileSearch-Portable/
         printf '#!/bin/bash\n./SmartFileSearch\n' > dist/SmartFileSearch-Portable/start.sh
@@ -135,7 +109,25 @@ jobs:
         mkdir -p dist/SmartFileSearch-Portable/data/indexdir
         mkdir -p dist/SmartFileSearch-Portable/logs
 
-        printf 'Smart File Search Portable (macOS Apple Silicon)\n\nUsage:\n1. Double-click SmartFileSearch to start\n2. Or run ./start.sh in terminal for verbose output\n3. AI model will be downloaded on first use\n\nFeatures:\n- No installation required\n- ~80MB (without AI model)\n- For Apple Silicon Macs (M1/M2/M3)\n' > dist/SmartFileSearch-Portable/README.txt
+        cat > dist/SmartFileSearch-Portable/README.txt << 'EOF'
+Smart File Search Portable (macOS Apple Silicon)
+
+Usage:
+1. Double-click SmartFileSearch to start
+2. Or run ./start.sh in terminal for verbose output
+
+AI Features:
+- llama-cpp-python is bundled (no additional installation needed)
+- Just place a GGUF model file in data/models/ folder
+- Enable AI in config.yaml: ai.enabled: true
+- GPU acceleration with Metal (Apple Silicon)
+
+Features:
+- No installation required
+- AI support built-in (just add model)
+- Full-text search with Whoosh
+- For Apple Silicon Macs (M1/M2/M3)
+EOF
 
         cd dist && zip -r SmartFileSearch-macOS-Portable.zip SmartFileSearch-Portable
 
@@ -144,7 +136,7 @@ jobs:
       with:
         name: SmartFileSearch-macOS
         path: |
-          dist/SmartFileSearch
+          dist/SmartFileSearch/SmartFileSearch
           dist/SmartFileSearch-macOS-Portable.zip
 
   # 创建发布

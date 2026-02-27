@@ -8,8 +8,12 @@ PyYAML>=6.0
 loguru>=0.7.2
 watchdog>=3.0.0
 
-# AI 功能（可选）
+# AI 功能（集成到打包应用中）
+# 用户只需提供 GGUF 模型文件
 llama-cpp-python>=0.2.23
+numpy>=1.24.0  # llama-cpp-python 依赖
+typing_extensions>=4.5.0  # 类型支持
+diskcache>=5.6.0  # 可选缓存
 
 # 其他工具
 chardet>=5.2.0  # 编码检测
