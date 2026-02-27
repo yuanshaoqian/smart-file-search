@@ -124,18 +124,20 @@ class SpinningIndicator(QWidget):
 class IndexProgressDialog(QDialog):
     """索引进度对话框 - 显示详细的索引进度信息"""
 
-    # 取消信号
+    # 信号
     cancelled = pyqtSignal()
+    hidden = pyqtSignal()  # 隐藏信号
 
     def __init__(self, title: str, parent=None):
         super().__init__(parent)
         self.setWindowTitle(title)
-        self.setModal(True)
-        self.setMinimumSize(500, 200)
+        self.setModal(False)  # 非模态，允许与主窗口交互
+        self.setMinimumSize(500, 220)
         self.setWindowFlags(
             Qt.WindowType.Dialog |
             Qt.WindowType.CustomizeWindowHint |
-            Qt.WindowType.WindowTitleHint
+            Qt.WindowType.WindowTitleHint |
+            Qt.WindowType.WindowMinimizeButtonHint
         )
         self._setup_ui()
         self._was_cancelled = False
@@ -176,15 +178,44 @@ class IndexProgressDialog(QDialog):
             stats_layout.addWidget(label)
         layout.addLayout(stats_layout)
 
+        # 提示标签
+        self.hint_label = QLabel("提示：点击\"隐藏\"可在后台继续，点击右下角转圈图标查看进度")
+        self.hint_label.setFont(QFont("Microsoft YaHei", 8))
+        self.hint_label.setStyleSheet("color: #666;")
+        self.hint_label.setWordWrap(True)
+        layout.addWidget(self.hint_label)
+
         layout.addStretch()
 
-        # 取消按钮
+        # 按钮行
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
+
+        # 隐藏按钮
+        self.hide_btn = QPushButton("隐藏")
+        self.hide_btn.setMinimumWidth(80)
+        self.hide_btn.clicked.connect(self.hide_dialog)
+        self.hide_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #555;
+                border: none;
+                border-radius: 5px;
+                padding: 8px 16px;
+                color: white;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #666;
+            }
+        """)
+        btn_layout.addWidget(self.hide_btn)
+
+        # 取消按钮
         self.cancel_btn = QPushButton("取消")
-        self.cancel_btn.setMinimumWidth(100)
+        self.cancel_btn.setMinimumWidth(80)
         self.cancel_btn.clicked.connect(self.cancel)
         btn_layout.addWidget(self.cancel_btn)
+
         layout.addLayout(btn_layout)
 
         # 应用样式
@@ -254,6 +285,11 @@ class IndexProgressDialog(QDialog):
         self.indexed_label.setText(f"已索引: {indexed}")
         self.skipped_label.setText(f"跳过: {skipped}")
         self.failed_label.setText(f"失败: {failed}")
+
+    def hide_dialog(self):
+        """隐藏对话框（索引继续在后台运行）"""
+        self.hide()
+        self.hidden.emit()
 
     def cancel(self):
         """取消操作"""
