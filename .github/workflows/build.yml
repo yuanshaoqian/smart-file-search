@@ -135,15 +135,17 @@ jobs:
         mkdir -p dist/SmartFileSearch-Portable/data/indexdir
         mkdir -p dist/SmartFileSearch-Portable/logs
 
-        echo "Smart File Search Portable (macOS)
+        cat > dist/SmartFileSearch-Portable/README.txt << 'EOF'
+        Smart File Search Portable (macOS)
 
-Usage: Double-click SmartFileSearch
+        Usage: Double-click SmartFileSearch
 
-AI Features (Optional):
-pip install llama-cpp-python
-Place GGUF model in data/models/
+        AI Features (Optional):
+        pip install llama-cpp-python
+        Place GGUF model in data/models/
 
-Features: Full-text search, For Apple Silicon" > dist/SmartFileSearch-Portable/README.txt
+        Features: Full-text search, For Apple Silicon
+        EOF
 
         cd dist && zip -r SmartFileSearch-macOS-Portable.zip SmartFileSearch-Portable
 
