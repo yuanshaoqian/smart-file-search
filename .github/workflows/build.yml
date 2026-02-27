@@ -21,7 +21,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: '3.10'
+        python-version: '3.11'
 
     - name: Install dependencies
       run: |
@@ -29,9 +29,30 @@ jobs:
         pip install PyQt6 whoosh python-docx openpyxl PyYAML loguru watchdog chardet pywin32
         pip install pyinstaller
 
-    - name: Build executable with PyInstaller
+    - name: Build executable
       run: |
-        pyinstaller build.spec --clean --noconfirm
+        pyinstaller --clean --noconfirm --onedir --windowed `
+          --name SmartFileSearch `
+          --add-data "config.yaml;." `
+          --add-data "src;src" `
+          --hidden-import PyQt6.QtCore `
+          --hidden-import PyQt6.QtGui `
+          --hidden-import PyQt6.QtWidgets `
+          --hidden-import PyQt6.sip `
+          --hidden-import whoosh `
+          --hidden-import whoosh.fields `
+          --hidden-import whoosh.index `
+          --hidden-import whoosh.qparser `
+          --hidden-import docx `
+          --hidden-import docx.opc `
+          --hidden-import openpyxl `
+          --hidden-import yaml `
+          --hidden-import loguru `
+          --hidden-import watchdog.observers `
+          --hidden-import watchdog.events `
+          --hidden-import chardet `
+          --paths src `
+          src/main.py
       shell: pwsh
 
     - name: Create portable version
@@ -39,36 +60,13 @@ jobs:
         New-Item -ItemType Directory -Force -Path dist\SmartFileSearch-Portable
         Copy-Item dist\SmartFileSearch\SmartFileSearch.exe dist\SmartFileSearch-Portable\
         Copy-Item config.yaml dist\SmartFileSearch-Portable\
-        Copy-Item README.md dist\SmartFileSearch-Portable\
+        Copy-Item README.md dist\SmartFileSearch-Portable\ -ErrorAction SilentlyContinue
         Copy-Item start.bat dist\SmartFileSearch-Portable\ -ErrorAction SilentlyContinue
         New-Item -ItemType Directory -Force -Path dist\SmartFileSearch-Portable\data\models
         New-Item -ItemType Directory -Force -Path dist\SmartFileSearch-Portable\data\indexdir
         New-Item -ItemType Directory -Force -Path dist\SmartFileSearch-Portable\logs
 
-        Set-Content -Path "dist\SmartFileSearch-Portable\README.txt" -Value @"
-Smart File Search Portable (Windows)
-
-Usage:
-1. Double-click SmartFileSearch.exe to start
-2. Or double-click start.bat for verbose output
-
-AI Features (Optional):
-To enable AI features:
-1. Install Python 3.10+ from python.org
-2. Run: pip install llama-cpp-python
-3. Place a GGUF model in data/models/
-4. Enable AI in config.yaml
-
-Or use llama.cpp CLI:
-1. Download llama.cpp from github.com/ggerganov/llama.cpp
-2. Place llama-cli.exe in the same folder
-3. Place a GGUF model in data/models/
-
-Features:
-- No installation required
-- Full-text search with Whoosh
-- Supports PDF, Word, Excel, text files
-"@
+        Set-Content -Path "dist\SmartFileSearch-Portable\README.txt" -Value "Smart File Search Portable (Windows)`n`nUsage: Double-click SmartFileSearch.exe`n`nAI Features (Optional):`npip install llama-cpp-python`nPlace GGUF model in data/models/`n`nFeatures: Full-text search, PDF/Word/Excel support"
 
         Compress-Archive -Path dist\SmartFileSearch-Portable -DestinationPath dist\SmartFileSearch-Windows-Portable.zip
       shell: pwsh
@@ -92,7 +90,7 @@ Features:
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: '3.10'
+        python-version: '3.11'
 
     - name: Install dependencies
       run: |
@@ -100,44 +98,52 @@ Features:
         pip install PyQt6 whoosh python-docx openpyxl PyYAML loguru watchdog chardet
         pip install pyinstaller
 
-    - name: Build executable with PyInstaller
+    - name: Build executable
       run: |
-        pyinstaller build.spec --clean --noconfirm
+        pyinstaller --clean --noconfirm --onedir --windowed \
+          --name SmartFileSearch \
+          --add-data "config.yaml:." \
+          --add-data "src:src" \
+          --hidden-import PyQt6.QtCore \
+          --hidden-import PyQt6.QtGui \
+          --hidden-import PyQt6.QtWidgets \
+          --hidden-import PyQt6.sip \
+          --hidden-import whoosh \
+          --hidden-import whoosh.fields \
+          --hidden-import whoosh.index \
+          --hidden-import whoosh.qparser \
+          --hidden-import docx \
+          --hidden-import docx.opc \
+          --hidden-import openpyxl \
+          --hidden-import yaml \
+          --hidden-import loguru \
+          --hidden-import watchdog.observers \
+          --hidden-import watchdog.events \
+          --hidden-import chardet \
+          --paths src \
+          src/main.py
 
     - name: Create portable version
       run: |
         mkdir -p dist/SmartFileSearch-Portable
         cp dist/SmartFileSearch/SmartFileSearch dist/SmartFileSearch-Portable/
         cp config.yaml dist/SmartFileSearch-Portable/
-        cp README.md dist/SmartFileSearch-Portable/
+        cp README.md dist/SmartFileSearch-Portable/ 2>/dev/null || true
         printf '#!/bin/bash\n./SmartFileSearch\n' > dist/SmartFileSearch-Portable/start.sh
         chmod +x dist/SmartFileSearch-Portable/start.sh
         mkdir -p dist/SmartFileSearch-Portable/data/models
         mkdir -p dist/SmartFileSearch-Portable/data/indexdir
         mkdir -p dist/SmartFileSearch-Portable/logs
 
-        cat > dist/SmartFileSearch-Portable/README.txt << 'EOF'
-Smart File Search Portable (macOS)
+        echo "Smart File Search Portable (macOS)
 
-Usage:
-1. Double-click SmartFileSearch to start
-2. Or run ./start.sh in terminal for verbose output
+Usage: Double-click SmartFileSearch
 
 AI Features (Optional):
-To enable AI features:
-1. Run: pip install llama-cpp-python
-2. Place a GGUF model in data/models/
-3. Enable AI in config.yaml
+pip install llama-cpp-python
+Place GGUF model in data/models/
 
-Or use llama.cpp CLI:
-1. Install llama.cpp: brew install llama.cpp
-2. Place a GGUF model in data/models/
-
-Features:
-- No installation required
-- Full-text search with Whoosh
-- For Apple Silicon Macs (M1/M2/M3)
-EOF
+Features: Full-text search, For Apple Silicon" > dist/SmartFileSearch-Portable/README.txt
 
         cd dist && zip -r SmartFileSearch-macOS-Portable.zip SmartFileSearch-Portable
 
@@ -158,29 +164,6 @@ EOF
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-
-    - name: Extract changelog for current version
-      id: changelog
-      run: |
-        VERSION="${GITHUB_REF_NAME#v}"
-        CHANGELOG=""
-
-        if [ -f "CHANGELOG.md" ]; then
-          CHANGELOG=$(sed -n "/^## \[${VERSION}\]/,/^## \[/p" CHANGELOG.md | sed '$d' | sed '1d')
-          if [ -z "$CHANGELOG" ]; then
-            CHANGELOG=$(sed -n "/^## \[v${VERSION}\]/,/^## \[/p" CHANGELOG.md | sed '$d' | sed '1d')
-          fi
-          if [ -z "$CHANGELOG" ]; then
-            CHANGELOG=$(sed -n "/^## ${VERSION}/,/^## /p" CHANGELOG.md | sed '$d' | sed '1d')
-          fi
-        fi
-
-        if [ -z "$CHANGELOG" ]; then
-          CHANGELOG="请查看 CHANGELOG.md 获取更新详情。"
-        fi
-
-        echo "$CHANGELOG" > /tmp/changelog.txt
-        echo "version=$VERSION" >> $GITHUB_OUTPUT
 
     - name: Download Windows artifacts
       uses: actions/download-artifact@v4
@@ -206,7 +189,13 @@ EOF
       uses: softprops/action-gh-release@v2
       with:
         name: Smart File Search ${{ github.ref_name }}
-        body_path: /tmp/changelog.txt
+        body: |
+          ## 更新说明
+          请查看 CHANGELOG.md 获取详细更新内容。
+
+          ## AI 功能
+          可选安装：`pip install llama-cpp-python`
+          然后将 GGUF 模型放到 data/models/ 目录
         draft: false
         prerelease: false
         files: |
