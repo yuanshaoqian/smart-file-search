@@ -24,15 +24,96 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import (
     Qt, QTimer, QThread, pyqtSignal, QSize, QDate, QSettings,
-    QRegularExpression
+    QRegularExpression, QPoint, QRect
 )
 from PyQt6.QtGui import (
     QFont, QIcon, QColor, QPalette, QAction, QKeySequence,
-    QDesktopServices, QShortcut
+    QDesktopServices, QShortcut, QPainter, QPen, QConicalGradient
 )
 from loguru import logger
 
 from .config import get_config
+
+
+class SpinningIndicator(QWidget):
+    """转圈动画指示器 - 显示在主窗口右下角表示正在更新索引"""
+
+    clicked = pyqtSignal()  # 点击信号
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._angle = 0
+        self._is_spinning = False
+        self._setup_ui()
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._rotate)
+
+    def _setup_ui(self):
+        """设置界面"""
+        self.setFixedSize(40, 40)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip("正在更新索引...\n点击查看详情")
+        self.hide()  # 默认隐藏
+
+    def start_spinning(self):
+        """开始旋转动画"""
+        if not self._is_spinning:
+            self._is_spinning = True
+            self._timer.start(30)  # 30ms 更新一次
+            self.show()
+
+    def stop_spinning(self):
+        """停止旋转动画"""
+        self._is_spinning = False
+        self._timer.stop()
+        self.hide()
+
+    def is_spinning(self) -> bool:
+        """是否正在旋转"""
+        return self._is_spinning
+
+    def _rotate(self):
+        """旋转角度"""
+        self._angle = (self._angle + 10) % 360
+        self.update()  # 触发重绘
+
+    def paintEvent(self, event):
+        """绘制事件"""
+        if not self._is_spinning:
+            return
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # 绘制背景圆形
+        center = self.rect().center()
+        radius = 16
+
+        # 绘制外圈（渐变色）
+        gradient = QConicalGradient(center, self._angle)
+        gradient.setColorAt(0, QColor("#0078d4"))
+        gradient.setColorAt(0.5, QColor("#1e8ae6"))
+        gradient.setColorAt(1, QColor("#0078d4"))
+
+        pen = QPen(QColor("#0078d4"), 3)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        painter.setPen(pen)
+        painter.drawEllipse(center, radius, radius)
+
+        # 绘制旋转的弧线
+        painter.setPen(QPen(QColor("#1e8ae6"), 3))
+        rect = QRect(center.x() - radius, center.y() - radius, radius * 2, radius * 2)
+        painter.drawArc(rect, self._angle * 16, 270 * 16)  # 绘制270度的弧
+
+        # 绘制中心点
+        painter.setBrush(QColor("#ffffff"))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawEllipse(center, 3, 3)
+
+    def mousePressEvent(self, event):
+        """鼠标点击事件"""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
 
 
 class IndexProgressDialog(QDialog):
@@ -220,15 +301,24 @@ class SearchThread(QThread):
         self.query = query
         self.limit = limit
         self.filters = filters
+        self._is_cancelled = False
 
     def run(self):
         try:
             start_time = time.time()
             results = self.indexer.search(self.query, limit=self.limit, filters=self.filters)
             elapsed = time.time() - start_time
-            self.finished.emit(results, elapsed)
+
+            # 检查是否已取消
+            if not self._is_cancelled:
+                self.finished.emit(results, elapsed)
         except Exception as e:
-            self.error.emit(str(e))
+            if not self._is_cancelled:
+                self.error.emit(str(e))
+
+    def cancel(self):
+        """取消搜索"""
+        self._is_cancelled = True
 
 
 class AISearchThread(QThread):
@@ -308,46 +398,53 @@ class SearchResultTable(QTableWidget):
     
     def display_results(self, results: List[Dict[str, Any]]):
         """显示搜索结果"""
-        self.setRowCount(len(results))
-        
-        for row, result in enumerate(results):
-            # 文件名
-            filename_item = QTableWidgetItem(result.get('filename', ''))
-            filename_item.setData(Qt.ItemDataRole.UserRole, result)
-            self.setItem(row, 0, filename_item)
-            
-            # 路径
-            path = result.get('path', '')
-            # 显示相对路径或截断路径
-            display_path = path if len(path) <= 80 else '...' + path[-77:]
-            path_item = QTableWidgetItem(display_path)
-            path_item.setToolTip(path)
-            self.setItem(row, 1, path_item)
-            
-            # 大小
-            size = result.get('size', 0)
-            size_str = self._format_size(size)
-            size_item = QTableWidgetItem(size_str)
-            size_item.setData(Qt.ItemDataRole.UserRole, size)  # 用于排序
-            self.setItem(row, 2, size_item)
-            
-            # 修改时间
-            modified = result.get('modified')
-            if modified:
-                if isinstance(modified, datetime):
-                    time_str = modified.strftime('%Y-%m-%d %H:%M')
+        # 禁用更新以提高性能
+        self.setUpdatesEnabled(False)
+
+        try:
+            self.setRowCount(len(results))
+
+            for row, result in enumerate(results):
+                # 文件名
+                filename_item = QTableWidgetItem(result.get('filename', ''))
+                filename_item.setData(Qt.ItemDataRole.UserRole, result)
+                self.setItem(row, 0, filename_item)
+
+                # 路径
+                path = result.get('path', '')
+                # 显示相对路径或截断路径
+                display_path = path if len(path) <= 80 else '...' + path[-77:]
+                path_item = QTableWidgetItem(display_path)
+                path_item.setToolTip(path)
+                self.setItem(row, 1, path_item)
+
+                # 大小
+                size = result.get('size', 0)
+                size_str = self._format_size(size)
+                size_item = QTableWidgetItem(size_str)
+                size_item.setData(Qt.ItemDataRole.UserRole, size)  # 用于排序
+                self.setItem(row, 2, size_item)
+
+                # 修改时间
+                modified = result.get('modified')
+                if modified:
+                    if isinstance(modified, datetime):
+                        time_str = modified.strftime('%Y-%m-%d %H:%M')
+                    else:
+                        time_str = str(modified)
                 else:
-                    time_str = str(modified)
-            else:
-                time_str = '-'
-            time_item = QTableWidgetItem(time_str)
-            self.setItem(row, 3, time_item)
-            
-            # 匹配度
-            score = result.get('score', 0)
-            score_str = f"{score:.2f}" if score else "-"
-            score_item = QTableWidgetItem(score_str)
-            self.setItem(row, 4, score_item)
+                    time_str = '-'
+                time_item = QTableWidgetItem(time_str)
+                self.setItem(row, 3, time_item)
+
+                # 匹配度
+                score = result.get('score', 0)
+                score_str = f"{score:.2f}" if score else "-"
+                score_item = QTableWidgetItem(score_str)
+                self.setItem(row, 4, score_item)
+        finally:
+            # 重新启用更新
+            self.setUpdatesEnabled(True)
     
     def _format_size(self, size: int) -> str:
         """格式化文件大小"""
@@ -609,6 +706,18 @@ class MainWindow(QMainWindow):
         self.search_history = []
         self.max_history = 50
 
+        # 索引更新相关状态
+        self._is_indexing = False
+        self._current_progress_dialog = None  # 当前进度对话框引用
+        self._index_stats = {
+            'current': 0,
+            'total': 0,
+            'indexed': 0,
+            'skipped': 0,
+            'failed': 0,
+            'status': ''
+        }
+
         # 初始化界面
         self.setup_ui()
         self.setup_menu()
@@ -628,6 +737,13 @@ class MainWindow(QMainWindow):
         # 搜索线程
         self.search_thread = None
         self.ai_search_thread = None
+
+        # 设置自动更新索引定时器（使用配置中的update_interval，默认300秒）
+        self._auto_update_timer = QTimer(self)
+        update_interval = self.config.index.update_interval * 1000  # 转换为毫秒
+        self._auto_update_timer.timeout.connect(self._auto_update_index)
+        self._auto_update_timer.start(update_interval)
+        self.logger.info(f"自动更新索引定时器已启动，间隔: {self.config.index.update_interval} 秒")
 
         self.logger.info("MainWindow 初始化完成")
     
@@ -707,14 +823,18 @@ class MainWindow(QMainWindow):
         results_layout.addWidget(self.result_info_label)
         
         right_layout.addWidget(results_group, stretch=1)
-        
+
         # 使用分割器
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self.filter_panel)
         splitter.addWidget(right_panel)
         splitter.setSizes([250, 750])
-        
+
         main_layout.addWidget(splitter)
+
+        # 创建转圈动画指示器（右下角）
+        self.spinning_indicator = SpinningIndicator(self)
+        self.spinning_indicator.clicked.connect(self._on_spinning_indicator_clicked)
     
     def setup_menu(self):
         """设置菜单栏"""
@@ -866,13 +986,79 @@ class MainWindow(QMainWindow):
         self.search_input.returnPressed.connect(self.perform_search)
         self.search_btn.clicked.connect(self.perform_search)
         self.ai_btn.clicked.connect(self.perform_ai_search)
-        
+
         # 筛选器
         self.filter_panel.filters_changed.connect(self.on_filters_changed)
-        
+
         # 结果表格
         self.result_table.itemSelectionChanged.connect(self.on_selection_changed)
         self.result_table.cellClicked.connect(self.on_cell_clicked)
+
+    def resizeEvent(self, event):
+        """窗口大小改变事件 - 确保转圈动画在右下角"""
+        super().resizeEvent(event)
+        self._update_spinning_indicator_position()
+
+    def _update_spinning_indicator_position(self):
+        """更新转圈动画位置（右下角）"""
+        if hasattr(self, 'spinning_indicator'):
+            margin = 15
+            x = self.width() - self.spinning_indicator.width() - margin
+            y = self.height() - self.spinning_indicator.height() - margin - 30  # 30 为状态栏高度
+            self.spinning_indicator.move(x, y)
+
+    def _on_spinning_indicator_clicked(self):
+        """点击转圈动画 - 显示进度对话框"""
+        if self._is_indexing:
+            # 如果正在索引，显示或创建进度对话框
+            if self._current_progress_dialog is None or not self._current_progress_dialog.isVisible():
+                self._show_progress_dialog()
+            else:
+                # 如果对话框已显示，将其激活
+                self._current_progress_dialog.raise_()
+                self._current_progress_dialog.activateWindow()
+
+    def _show_progress_dialog(self):
+        """显示进度对话框"""
+        if self._current_progress_dialog is None:
+            self._current_progress_dialog = IndexProgressDialog("更新索引", self)
+
+        # 更新对话框显示当前状态
+        self._current_progress_dialog.update_progress(
+            self._index_stats['current'],
+            self._index_stats['total'],
+            "",
+            self._index_stats['status']
+        )
+        self._current_progress_dialog.update_stats(
+            self._index_stats['indexed'],
+            self._index_stats['skipped'],
+            self._index_stats['failed']
+        )
+        self._current_progress_dialog.show()
+
+    def _auto_update_index(self):
+        """自动更新索引（后台静默模式）"""
+        if self._is_indexing:
+            self.logger.info("索引正在更新中，跳过自动更新")
+            return
+
+        self.logger.info("触发自动更新索引")
+        self._do_index(incremental=True, show_dialog=False)
+
+    def _update_index_stats(self, current: int, total: int, indexed: int, skipped: int, failed: int, status: str = ""):
+        """更新索引统计信息"""
+        self._index_stats['current'] = current
+        self._index_stats['total'] = total
+        self._index_stats['indexed'] = indexed
+        self._index_stats['skipped'] = skipped
+        self._index_stats['failed'] = failed
+        self._index_stats['status'] = status
+
+        # 如果进度对话框可见，更新它
+        if self._current_progress_dialog and self._current_progress_dialog.isVisible():
+            self._current_progress_dialog.update_progress(current, total, "", status)
+            self._current_progress_dialog.update_stats(indexed, skipped, failed)
     
     def apply_theme(self):
         """应用主题"""
@@ -1282,13 +1468,42 @@ class MainWindow(QMainWindow):
     def update_index(self):
         """更新索引"""
         self._do_index(incremental=True)
-    
-    def _do_index(self, incremental: bool = False):
-        """执行索引操作"""
-        # 创建详细的进度对话框
+
+    def _do_index(self, incremental: bool = False, show_dialog: bool = True):
+        """执行索引操作
+
+        Args:
+            incremental: 是否增量更新
+            show_dialog: 是否显示进度对话框（False时只显示转圈动画）
+        """
+        # 如果正在索引，不重复执行
+        if self._is_indexing:
+            self.logger.warning("索引正在进行中，跳过")
+            return
+
+        self._is_indexing = True
+
+        # 开始显示转圈动画
+        self.spinning_indicator.start_spinning()
+        self._update_spinning_indicator_position()
+
+        # 重置统计信息
+        self._index_stats = {
+            'current': 0,
+            'total': 0,
+            'indexed': 0,
+            'skipped': 0,
+            'failed': 0,
+            'status': "准备开始..."
+        }
+
+        # 创建进度对话框（根据参数决定是否显示）
         title = "更新索引" if incremental else "创建索引"
         progress_dialog = IndexProgressDialog(title, self)
-        progress_dialog.show()
+        self._current_progress_dialog = progress_dialog
+
+        if show_dialog:
+            progress_dialog.show()
 
         # 取消标志
         cancel_flag = [False]  # 使用列表以便在闭包中修改
@@ -1298,6 +1513,13 @@ class MainWindow(QMainWindow):
             """索引进度回调"""
             if cancel_flag[0] or progress_dialog.was_cancelled():
                 return False  # 返回 False 表示应该取消
+
+            # 更新统计信息
+            self._index_stats['current'] = current
+            self._index_stats['total'] = total
+            self._index_stats['status'] = status
+
+            # 发送信号更新UI
             self.worker.progress.emit(current, total, filename, status)
             return True
 
@@ -1310,6 +1532,11 @@ class MainWindow(QMainWindow):
 
         # 使用工作线程
         self.worker = WorkerThread(index_task)
+
+        # 统计信息变量
+        self._stats_indexed = 0
+        self._stats_skipped = 0
+        self._stats_failed = 0
 
         # 取消处理函数
         def on_cancel():
@@ -1325,19 +1552,46 @@ class MainWindow(QMainWindow):
         # 连接信号
         progress_dialog.cancelled.connect(on_cancel)
         self.worker.progress.connect(
-            lambda curr, total, fname, status: progress_dialog.update_progress(curr, total, fname, status)
+            lambda curr, total, fname, status: self._on_index_progress(curr, total, fname, status, progress_dialog)
         )
         self.worker.stats_update.connect(
-            lambda indexed, skipped, failed: progress_dialog.update_stats(indexed, skipped, failed)
+            lambda indexed, skipped, failed: self._on_index_stats_update(indexed, skipped, failed, progress_dialog)
         )
-        self.worker.finished.connect(lambda stats: self._on_index_complete(stats, progress_dialog))
-        self.worker.error.connect(lambda err: self._on_index_error(err, progress_dialog))
+        self.worker.finished.connect(lambda stats: self._on_index_complete(stats, progress_dialog, show_dialog))
+        self.worker.error.connect(lambda err: self._on_index_error(err, progress_dialog, show_dialog))
 
         self.worker.start()
-    
-    def _on_index_complete(self, stats: Dict, progress: IndexProgressDialog):
+
+    def _on_index_progress(self, current: int, total: int, filename: str, status: str, progress_dialog: 'IndexProgressDialog'):
+        """索引进度更新"""
+        # 更新统计信息
+        self._index_stats['current'] = current
+        self._index_stats['total'] = total
+        self._index_stats['status'] = status
+
+        # 只有对话框可见时才更新
+        if progress_dialog.isVisible():
+            progress_dialog.update_progress(current, total, filename, status)
+
+    def _on_index_stats_update(self, indexed: int, skipped: int, failed: int, progress_dialog: 'IndexProgressDialog'):
+        """索引统计信息更新"""
+        self._index_stats['indexed'] = indexed
+        self._index_stats['skipped'] = skipped
+        self._index_stats['failed'] = failed
+
+        # 只有对话框可见时才更新
+        if progress_dialog.isVisible():
+            progress_dialog.update_stats(indexed, skipped, failed)
+
+    def _on_index_complete(self, stats: Dict, progress: IndexProgressDialog, show_dialog: bool = True):
         """索引完成"""
-        progress.close()
+        self._is_indexing = False
+        self.spinning_indicator.stop_spinning()
+
+        # 关闭进度对话框
+        if progress_dialog:
+            progress_dialog.close()
+        self._current_progress_dialog = None
 
         self.update_status()
 
@@ -1345,28 +1599,49 @@ class MainWindow(QMainWindow):
         if stats.get('cancelled', False):
             duration = stats.get('duration', 0)
             self.status_label.setText("索引已取消")
+            self.logger.info(f"索引已取消，耗时: {duration:.2f}秒")
             return
 
-        # 显示完成信息
         duration = stats.get('duration', 0)
-        QMessageBox.information(
-            self,
-            "索引完成",
-            f"索引完成！\n\n"
-            f"总文件数: {stats.get('total_files', 0)}\n"
-            f"已索引: {stats.get('indexed_files', 0)}\n"
-            f"跳过: {stats.get('skipped_files', 0)}\n"
-            f"失败: {stats.get('failed_files', 0)}\n"
-            f"耗时: {duration:.2f} 秒"
+        self.logger.info(
+            f"索引完成: 处理 {stats.get('total_files', 0)} 个文件, "
+            f"成功 {stats.get('indexed_files', 0)} 个, "
+            f"跳过 {stats.get('skipped_files', 0)} 个, "
+            f"失败 {stats.get('failed_files', 0)} 个, "
+            f"耗时 {duration:.2f} 秒"
         )
 
-        self.status_label.setText("索引完成")
-    
-    def _on_index_error(self, error: str, progress: IndexProgressDialog):
-        """索引错误"""
-        progress.close()
+        # 只有手动触发更新时才显示完成信息对话框
+        if show_dialog:
+            QMessageBox.information(
+                self,
+                "索引完成",
+                f"索引完成！\n\n"
+                f"总文件数: {stats.get('total_files', 0)}\n"
+                f"已索引: {stats.get('indexed_files', 0)}\n"
+                f"跳过: {stats.get('skipped_files', 0)}\n"
+                f"失败: {stats.get('failed_files', 0)}\n"
+                f"耗时: {duration:.2f} 秒"
+            )
 
-        QMessageBox.critical(self, "索引错误", f"索引创建失败:\n{error}")
+        self.status_label.setText(f"索引完成 ({stats.get('indexed_files', 0)} 个文件)")
+
+    def _on_index_error(self, error: str, progress: IndexProgressDialog, show_dialog: bool = True):
+        """索引错误"""
+        self._is_indexing = False
+        self.spinning_indicator.stop_spinning()
+
+        # 关闭进度对话框
+        if progress_dialog:
+            progress_dialog.close()
+        self._current_progress_dialog = None
+
+        self.logger.error(f"索引错误: {error}")
+
+        # 只有手动触发更新时才显示错误对话框
+        if show_dialog:
+            QMessageBox.critical(self, "索引错误", f"索引创建失败:\n{error}")
+
         self.status_label.setText("索引失败")
     
     def open_selected_file(self):
@@ -1452,15 +1727,42 @@ class MainWindow(QMainWindow):
     
     def show_ai_settings(self):
         """显示 AI 设置对话框"""
-        # TODO: 实现 AI 设置对话框
-        QMessageBox.information(
-            self,
-            "AI 设置",
-            f"AI 功能状态: {'启用' if self.config.ai.enabled else '禁用'}\n\n"
-            f"模型路径: {self.config.ai.model_path}\n"
-            f"上下文大小: {self.config.ai.context_size}\n\n"
-            f"请编辑配置文件来修改 AI 设置。"
-        )
+        try:
+            from .ai_setup_dialog import AISetupDialog
+        except ImportError:
+            from ai_setup_dialog import AISetupDialog
+
+        try:
+            dialog = AISetupDialog(self.ai_engine, self.config, self)
+            if dialog.exec():
+                # 重新加载配置
+                from .config import reload_config
+                try:
+                    self.config = reload_config()
+                except ImportError:
+                    from config import reload_config
+                    self.config = reload_config()
+
+                # 重新初始化AI引擎
+                try:
+                    from .ai_engine import close_ai_engine, get_ai_engine
+                except ImportError:
+                    from ai_engine import close_ai_engine, get_ai_engine
+
+                close_ai_engine()
+                self.ai_engine = get_ai_engine(self.config)
+                self.update_status()
+
+        except Exception as e:
+            self.logger.error(f"打开 AI 设置对话框失败: {e}")
+            # 回退到简单信息框
+            QMessageBox.information(
+                self,
+                "AI 设置",
+                f"AI 功能状态: {'启用' if self.config.ai.enabled else '禁用'}\n\n"
+                f"当前后端: {self.ai_engine.backend_type if self.ai_engine else '未初始化'}\n\n"
+                f"打开设置对话框失败: {str(e)}"
+            )
     
     def show_about(self):
         """显示关于对话框"""
@@ -1486,6 +1788,15 @@ class MainWindow(QMainWindow):
         """窗口关闭事件"""
         self.logger.info("窗口关闭事件触发")
 
+        # 停止自动更新定时器
+        if hasattr(self, '_auto_update_timer'):
+            self._auto_update_timer.stop()
+            self.logger.info("自动更新定时器已停止")
+
+        # 停止转圈动画
+        if hasattr(self, 'spinning_indicator'):
+            self.spinning_indicator.stop_spinning()
+
         # 保存设置
         self.save_settings()
         self.logger.info("设置已保存")
@@ -1505,11 +1816,16 @@ class MainWindow(QMainWindow):
             self.logger.info("AI搜索线程已停止")
 
         # 关闭工作线程
-        if hasattr(self, 'worker') and self.worker.isRunning():
+        if hasattr(self, 'worker') and self.worker and self.worker.isRunning():
             self.logger.info("等待工作线程完成...")
             self.worker.terminate()
             self.worker.wait()
             self.logger.info("工作线程已停止")
+
+        # 关闭进度对话框
+        if self._current_progress_dialog:
+            self._current_progress_dialog.close()
+            self._current_progress_dialog = None
 
         self.logger.info("窗口关闭完成")
         event.accept()

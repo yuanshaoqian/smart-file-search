@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 AI 引擎模块
-支持多种 AI 后端：llama-cpp-python、llama.cpp CLI、以及简单的回退模式
+支持多种 AI 后端：Ollama、llama-cpp-python、llama.cpp CLI、以及智能回退模式
 """
 
 import os
@@ -11,6 +11,8 @@ import json
 import time
 import subprocess
 import shutil
+import urllib.request
+import urllib.error
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple, Union
 from dataclasses import dataclass
@@ -46,8 +48,98 @@ class AIBackend:
     def complete(self, prompt: str, max_tokens: int = 256, temperature: float = 0.7) -> Optional[str]:
         raise NotImplementedError
 
+    def get_status(self) -> Dict[str, Any]:
+        return {"available": self.is_available()}
+
     def close(self):
         pass
+
+
+class OllamaBackend(AIBackend):
+    """Ollama 后端 - 最简单的本地AI方案"""
+
+    def __init__(self, config):
+        super().__init__(config)
+        self.model_name = "llama3.2:1b"  # 默认使用小模型
+        self.api_url = "http://localhost:11434"
+        self._available = None
+
+    def is_available(self) -> bool:
+        if self._available is not None:
+            return self._available
+
+        try:
+            # 检查 Ollama 服务是否运行
+            req = urllib.request.Request(f"{self.api_url}/api/tags", method='GET')
+            with urllib.request.urlopen(req, timeout=2) as response:
+                if response.status == 200:
+                    self.logger.info("Ollama 服务可用")
+                    self._available = True
+                    return True
+        except (urllib.error.URLError, TimeoutError, ConnectionRefusedError):
+            self.logger.debug("Ollama 服务未运行")
+        except Exception as e:
+            self.logger.debug(f"检查 Ollama 失败: {e}")
+
+        # 检查 ollama 命令是否存在
+        if shutil.which('ollama'):
+            self.logger.info("找到 Ollama 命令，但服务未运行")
+            self._available = False
+            return False
+
+        self._available = False
+        return False
+
+    def get_status(self) -> Dict[str, Any]:
+        status = {"available": self.is_available(), "installed": shutil.which('ollama') is not None}
+
+        if status["available"]:
+            try:
+                req = urllib.request.Request(f"{self.api_url}/api/tags", method='GET')
+                with urllib.request.urlopen(req, timeout=2) as response:
+                    data = json.loads(response.read().decode())
+                    models = [m['name'] for m in data.get('models', [])]
+                    status['models'] = models
+                    if models:
+                        self.model_name = models[0]  # 使用第一个可用模型
+            except Exception:
+                pass
+
+        return status
+
+    def load_model(self, model_path: Path) -> bool:
+        # Ollama 不需要加载模型文件
+        return self.is_available()
+
+    def complete(self, prompt: str, max_tokens: int = 256, temperature: float = 0.7) -> Optional[str]:
+        if not self.is_available():
+            return None
+
+        try:
+            data = {
+                "model": self.model_name,
+                "prompt": prompt,
+                "stream": False,
+                "options": {
+                    "num_predict": max_tokens,
+                    "temperature": temperature,
+                }
+            }
+
+            req = urllib.request.Request(
+                f"{self.api_url}/api/generate",
+                data=json.dumps(data).encode('utf-8'),
+                headers={'Content-Type': 'application/json'},
+                method='POST'
+            )
+
+            with urllib.request.urlopen(req, timeout=60) as response:
+                result = json.loads(response.read().decode())
+                return result.get('response', '').strip()
+
+        except Exception as e:
+            self.logger.error(f"Ollama 推理失败: {e}")
+            return None
 
 
 class LlamaCppPythonBackend(AIBackend):
@@ -237,11 +329,64 @@ class LlamaCliBackend(AIBackend):
 
 
 class SimpleBackend(AIBackend):
-    """简单后端 - 不需要任何 AI 库，使用规则匹配"""
+    """智能后端 - 使用规则匹配和启发式方法，无需AI模型"""
+
+    # 文件类型关键词映射
+    FILE_TYPE_KEYWORDS = {
+        '.pdf': ['pdf', 'PDF文档', '便携式文档'],
+        '.docx': ['word', 'doc', 'docx', 'word文档', '微软文档'],
+        '.doc': ['word', 'doc', 'word文档'],
+        '.xlsx': ['excel', 'xlsx', 'xls', '表格', '电子表格'],
+        '.xls': ['excel', 'xls', '表格'],
+        '.pptx': ['ppt', 'pptx', 'powerpoint', '演示文稿', '幻灯片'],
+        '.txt': ['txt', '文本', '记事本'],
+        '.md': ['md', 'markdown', 'markdown文档'],
+        '.py': ['py', 'python', 'python代码', 'python脚本'],
+        '.java': ['java', 'java代码', 'java文件'],
+        '.js': ['js', 'javascript', 'js代码'],
+        '.html': ['html', '网页', 'web页面'],
+        '.css': ['css', '样式表', '样式'],
+        '.json': ['json', 'json文件', '配置文件'],
+        '.xml': ['xml', 'xml文件'],
+        '.zip': ['zip', '压缩包', '压缩文件'],
+        '.rar': ['rar', '压缩包'],
+        '.7z': ['7z', '压缩包'],
+        '.mp3': ['mp3', '音乐', '音频'],
+        '.mp4': ['mp4', '视频', '电影'],
+        '.jpg': ['jpg', 'jpeg', '图片', '照片', '图像'],
+        '.png': ['png', '图片', '照片'],
+        '.gif': ['gif', '动图', '图片'],
+    }
+
+    # 时间关键词映射
+    TIME_KEYWORDS = {
+        '今天': 1,
+        '今日': 1,
+        '昨天': 2,
+        '昨日': 2,
+        '本周': 7,
+        '这周': 7,
+        '上周': 14,
+        '最近一周': 7,
+        '最近三天': 3,
+        '最近七天': 7,
+        '最近一月': 30,
+        '最近一个月': 30,
+        '本月': 30,
+        '上个月': 60,
+    }
+
+    # 大小关键词映射 (MB)
+    SIZE_KEYWORDS = {
+        '大文件': 100,
+        '超大': 500,
+        '小文件': 0,
+        '空文件': 0,
+    }
 
     def __init__(self, config):
         super().__init__(config)
-        self.logger.info("使用简单后端（无 AI 模型）")
+        self.logger.info("使用智能后端（规则匹配模式）")
 
     def is_available(self) -> bool:
         return True
@@ -252,6 +397,70 @@ class SimpleBackend(AIBackend):
     def complete(self, prompt: str, max_tokens: int = 256, temperature: float = 0.7) -> Optional[str]:
         # 简单后端不进行文本生成
         return None
+
+    def parse_query(self, query: str) -> QueryAnalysis:
+        """智能解析查询"""
+        query_lower = query.lower()
+        keywords = []
+        filters = {}
+        intent_parts = []
+
+        # 提取文件类型
+        detected_extensions = []
+        for ext, keywords_list in self.FILE_TYPE_KEYWORDS.items():
+            for kw in keywords_list:
+                if kw.lower() in query_lower:
+                    detected_extensions.append(ext)
+                    break
+
+        if detected_extensions:
+            filters['extensions'] = list(set(detected_extensions))
+            intent_parts.append(f"文件类型: {', '.join(detected_extensions)}")
+
+        # 提取时间范围
+        for time_kw, days in self.TIME_KEYWORDS.items():
+            if time_kw in query:
+                from datetime import date, timedelta
+                filters['modified_after'] = date.today() - timedelta(days=days)
+                intent_parts.append(f"时间: {time_kw}")
+                break
+
+        # 提取大小条件
+        for size_kw, size_mb in self.SIZE_KEYWORDS.items():
+            if size_kw in query:
+                if size_mb > 0:
+                    filters['min_size'] = size_mb * 1024 * 1024
+                intent_parts.append(f"大小: {size_kw}")
+                break
+
+        # 提取关键词（中文、英文、数字）
+        # 移除已识别的特殊词汇
+        clean_query = query
+        for ext_list in self.FILE_TYPE_KEYWORDS.values():
+            for kw in ext_list:
+                clean_query = clean_query.replace(kw, '')
+        for time_kw in self.TIME_KEYWORDS:
+            clean_query = clean_query.replace(time_kw, '')
+        for size_kw in self.SIZE_KEYWORDS:
+            clean_query = clean_query.replace(size_kw, '')
+
+        # 提取剩余关键词
+        keywords = re.findall(r'[\u4e00-\u9fff\w]{2,}', clean_query)
+
+        # 构建意图描述
+        if intent_parts:
+            intent = f"智能搜索 - {'; '.join(intent_parts)}"
+        else:
+            intent = f"关键词搜索"
+
+        confidence = 0.7 if filters else 0.5
+
+        return QueryAnalysis(
+            keywords=keywords,
+            filters=filters,
+            intent=intent,
+            confidence=confidence
+        )
 
 
 class AIEngine:
@@ -287,6 +496,7 @@ class AIEngine:
         """初始化 AI 后端"""
         # 按优先级尝试不同的后端
         backends = [
+            ("ollama", OllamaBackend),
             ("llama-cpp-python", LlamaCppPythonBackend),
             ("llama.cpp-cli", LlamaCliBackend),
         ]
@@ -302,10 +512,10 @@ class AIEngine:
             except Exception as e:
                 self.logger.warning(f"初始化后端 {name} 失败: {e}")
 
-        # 回退到简单后端
+        # 回退到智能后端（始终可用）
         self.backend = SimpleBackend(self.config)
         self.backend_type = "simple"
-        self.logger.info("AI 后端不可用，使用简单模式")
+        self.logger.info("AI 后端不可用，使用智能匹配模式")
 
     def _resolve_model_path(self) -> Optional[Path]:
         """解析模型路径"""
@@ -346,7 +556,7 @@ class AIEngine:
         if not self.enabled or not self.backend:
             return False
 
-        if self.backend_type == "simple":
+        if self.backend_type in ("simple", "ollama"):
             return True
 
         model_path = self._resolve_model_path()
@@ -378,7 +588,14 @@ class AIEngine:
 
     def parse_natural_language(self, query: str) -> QueryAnalysis:
         """解析自然语言查询"""
-        if not self.enabled or not self.model_loaded:
+        if not self.enabled:
+            return self._simple_parse(query)
+
+        # 如果是智能后端，使用其智能解析
+        if self.backend_type == "simple" and isinstance(self.backend, SimpleBackend):
+            return self.backend.parse_query(query)
+
+        if not self.model_loaded:
             return self._simple_parse(query)
 
         try:
@@ -402,15 +619,23 @@ class AIEngine:
 
     def _simple_parse(self, query: str) -> QueryAnalysis:
         """简单解析（回退方法）"""
+        # 使用智能后端的解析
+        if isinstance(self.backend, SimpleBackend):
+            return self.backend.parse_query(query)
+
         keywords = re.findall(r'[\u4e00-\u9fff\w]{2,}', query)
 
         filters = {}
-        if 'pdf' in query.lower():
-            filters['extensions'] = ['.pdf']
-        if 'word' in query.lower() or 'doc' in query.lower():
-            filters.setdefault('extensions', []).append('.docx')
-        if 'excel' in query.lower() or 'xls' in query.lower():
-            filters.setdefault('extensions', []).append('.xlsx')
+        query_lower = query.lower()
+
+        # 检测文件类型
+        for ext, kws in SimpleBackend.FILE_TYPE_KEYWORDS.items():
+            for kw in kws:
+                if kw.lower() in query_lower:
+                    filters['extensions'] = [ext]
+                    break
+            if 'extensions' in filters:
+                break
 
         return QueryAnalysis(
             keywords=keywords,
@@ -492,16 +717,77 @@ class AIEngine:
 
     def is_enabled(self) -> bool:
         """检查 AI 功能是否启用"""
-        return self.enabled and (self.model_loaded or self.backend_type == "simple")
+        return self.enabled and (self.model_loaded or self.backend_type in ("simple", "ollama"))
 
     def get_model_info(self) -> Dict[str, Any]:
         """获取模型信息"""
-        return {
+        info = {
             'enabled': self.enabled,
             'backend': self.backend_type,
             'model_loaded': self.model_loaded,
             'config_path': self.config.ai.model_path,
         }
+
+        # 获取后端详细状态
+        if self.backend:
+            info['backend_status'] = self.backend.get_status()
+
+        return info
+
+    def get_available_backends(self) -> List[Dict[str, Any]]:
+        """获取所有可用的AI后端列表"""
+        backends_info = []
+
+        # 检查 Ollama
+        ollama = OllamaBackend(self.config)
+        ollama_status = ollama.get_status()
+        backends_info.append({
+            'name': 'Ollama',
+            'id': 'ollama',
+            'available': ollama_status.get('available', False),
+            'installed': ollama_status.get('installed', False),
+            'models': ollama_status.get('models', []),
+            'description': '本地AI服务，一键安装',
+            'install_command': 'ollama pull llama3.2:1b',
+            'website': 'https://ollama.ai'
+        })
+
+        # 检查 llama-cpp-python
+        llama_cpp = LlamaCppPythonBackend(self.config)
+        backends_info.append({
+            'name': 'llama-cpp-python',
+            'id': 'llama-cpp-python',
+            'available': llama_cpp.is_available(),
+            'installed': llama_cpp.is_available(),
+            'description': 'Python绑定，需要编译',
+            'install_command': 'pip install llama-cpp-python',
+            'website': 'https://github.com/abetlen/llama-cpp-python'
+        })
+
+        # 检查 llama.cpp CLI
+        llama_cli = LlamaCliBackend(self.config)
+        backends_info.append({
+            'name': 'llama.cpp CLI',
+            'id': 'llama.cpp-cli',
+            'available': llama_cli.is_available(),
+            'installed': llama_cli.is_available(),
+            'description': '命令行工具',
+            'install_command': '下载预编译版本',
+            'website': 'https://github.com/ggerganov/llama.cpp'
+        })
+
+        # 始终可用的智能模式
+        backends_info.append({
+            'name': '智能匹配',
+            'id': 'simple',
+            'available': True,
+            'installed': True,
+            'description': '内置智能匹配，无需安装',
+            'install_command': None,
+            'website': None
+        })
+
+        return backends_info
 
     def close(self) -> None:
         """关闭 AI 引擎"""

@@ -54,7 +54,7 @@ DEFAULT_CONFIG = {
         "incremental": True,
     },
     "ai": {
-        "enabled": False,
+        "enabled": True,  # 默认启用，使用智能匹配模式
         "model_path": "data/models/llama-2-7b.Q4_K_M.gguf",
         "model_url": "https://huggingface.co/TheBloke/Llama-2-7B-GGUF/resolve/main/llama-2-7b.Q4_K_M.gguf",
         "context_size": 2048,
