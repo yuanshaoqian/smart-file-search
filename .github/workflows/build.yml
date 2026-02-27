@@ -182,9 +182,9 @@ jobs:
     - name: Prepare release files
       run: |
         mkdir -p release
-        cp dist/windows/SmartFileSearch.exe release/
+        cp dist/windows/SmartFileSearch/SmartFileSearch.exe release/
         cp dist/windows/SmartFileSearch-Windows-Portable.zip release/
-        cp dist/macos/SmartFileSearch release/SmartFileSearch-macOS
+        cp dist/macos/SmartFileSearch/SmartFileSearch release/SmartFileSearch-macOS
         cp dist/macos/SmartFileSearch-macOS-Portable.zip release/
 
     - name: Create Release
