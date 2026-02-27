@@ -23,19 +23,11 @@ jobs:
       with:
         python-version: '3.10'
 
-    - name: Install core dependencies
+    - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install PyQt6 whoosh python-docx openpyxl PyYAML loguru watchdog chardet pywin32
-        pip install pyinstaller pyinstaller-hooks-contrib
-
-    - name: Install llama-cpp-python (CPU version)
-      run: |
-        # Try precompiled wheel first, fallback to source build
-        pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu || \
-        pip install llama-cpp-python --no-binary :all:
-      shell: pwsh
-      continue-on-error: true
+        pip install pyinstaller
 
     - name: Build executable with PyInstaller
       run: |
@@ -60,15 +52,20 @@ Usage:
 1. Double-click SmartFileSearch.exe to start
 2. Or double-click start.bat for verbose output
 
-AI Features:
-- llama-cpp-python is bundled (no additional installation needed)
-- Just place a GGUF model file in data/models/ folder
-- Enable AI in config.yaml: ai.enabled: true
-- Recommended model: Phi-2 Q4_K_M (~1.6GB)
+AI Features (Optional):
+To enable AI features:
+1. Install Python 3.10+ from python.org
+2. Run: pip install llama-cpp-python
+3. Place a GGUF model in data/models/
+4. Enable AI in config.yaml
+
+Or use llama.cpp CLI:
+1. Download llama.cpp from github.com/ggerganov/llama.cpp
+2. Place llama-cli.exe in the same folder
+3. Place a GGUF model in data/models/
 
 Features:
 - No installation required
-- AI support built-in (just add model)
 - Full-text search with Whoosh
 - Supports PDF, Word, Excel, text files
 "@
@@ -84,7 +81,7 @@ Features:
           dist/SmartFileSearch/SmartFileSearch.exe
           dist/SmartFileSearch-Windows-Portable.zip
 
-  # 构建 macOS 版本 (Apple Silicon)
+  # 构建 macOS 版本
   build-macos:
     runs-on: macos-latest
 
@@ -97,19 +94,11 @@ Features:
       with:
         python-version: '3.10'
 
-    - name: Install core dependencies
+    - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install PyQt6 whoosh python-docx openpyxl PyYAML loguru watchdog chardet
-        pip install pyinstaller pyinstaller-hooks-contrib
-
-    - name: Install llama-cpp-python (Metal version for Apple Silicon)
-      run: |
-        # Try Metal-enabled wheel first, fallback to CPU version
-        CMAKE_ARGS="-DLLAMA_METAL=on" pip install llama-cpp-python --no-cache-dir || \
-        pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu || \
-        pip install llama-cpp-python --no-binary :all:
-      continue-on-error: true
+        pip install pyinstaller
 
     - name: Build executable with PyInstaller
       run: |
@@ -128,21 +117,24 @@ Features:
         mkdir -p dist/SmartFileSearch-Portable/logs
 
         cat > dist/SmartFileSearch-Portable/README.txt << 'EOF'
-Smart File Search Portable (macOS Apple Silicon)
+Smart File Search Portable (macOS)
 
 Usage:
 1. Double-click SmartFileSearch to start
 2. Or run ./start.sh in terminal for verbose output
 
-AI Features:
-- llama-cpp-python is bundled (no additional installation needed)
-- Just place a GGUF model file in data/models/ folder
-- Enable AI in config.yaml: ai.enabled: true
-- GPU acceleration with Metal (Apple Silicon)
+AI Features (Optional):
+To enable AI features:
+1. Run: pip install llama-cpp-python
+2. Place a GGUF model in data/models/
+3. Enable AI in config.yaml
+
+Or use llama.cpp CLI:
+1. Install llama.cpp: brew install llama.cpp
+2. Place a GGUF model in data/models/
 
 Features:
 - No installation required
-- AI support built-in (just add model)
 - Full-text search with Whoosh
 - For Apple Silicon Macs (M1/M2/M3)
 EOF
