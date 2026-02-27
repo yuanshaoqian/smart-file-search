@@ -1054,15 +1054,20 @@ class MainWindow(QMainWindow):
             self.spinning_indicator.move(x, y)
 
     def _on_spinning_indicator_clicked(self):
-        """点击转圈动画 - 显示进度对话框"""
+        """点击转圈动画 - 显示或隐藏进度对话框"""
         if self._is_indexing:
-            # 如果正在索引，显示或创建进度对话框
-            if self._current_progress_dialog is None or not self._current_progress_dialog.isVisible():
+            # 如果正在索引，切换进度对话框的显示状态
+            if self._current_progress_dialog is None:
                 self._show_progress_dialog()
+            elif self._current_progress_dialog.isVisible():
+                # 如果对话框已显示，隐藏它
+                self._current_progress_dialog.hide()
             else:
-                # 如果对话框已显示，将其激活
-                self._current_progress_dialog.raise_()
-                self._current_progress_dialog.activateWindow()
+                # 如果对话框隐藏，显示它
+                self._show_progress_dialog()
+        else:
+            # 如果没有在索引，不执行任何操作
+            pass
 
     def _show_progress_dialog(self):
         """显示进度对话框"""
@@ -1507,13 +1512,15 @@ class MainWindow(QMainWindow):
             "这将删除现有索引并重新创建。确定要继续吗？",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
-        
+
         if reply == QMessageBox.StandardButton.Yes:
-            self._do_index(incremental=False)
+            # 默认隐藏对话框，在后台运行
+            self._do_index(incremental=False, show_dialog=False)
     
     def update_index(self):
         """更新索引"""
-        self._do_index(incremental=True)
+        # 默认隐藏对话框，在后台运行
+        self._do_index(incremental=True, show_dialog=False)
 
     def _do_index(self, incremental: bool = False, show_dialog: bool = True):
         """执行索引操作
