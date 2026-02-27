@@ -50,7 +50,7 @@ class SpinningIndicator(QWidget):
 
     def _setup_ui(self):
         """设置界面"""
-        self.setFixedSize(40, 40)
+        self.setFixedSize(32, 32)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setToolTip("正在更新索引...\n点击查看详情")
         self.hide()  # 默认隐藏
@@ -59,7 +59,7 @@ class SpinningIndicator(QWidget):
         """开始旋转动画"""
         if not self._is_spinning:
             self._is_spinning = True
-            self._timer.start(30)  # 30ms 更新一次
+            self._timer.start(50)  # 50ms 更新一次
             self.show()
 
     def stop_spinning(self):
@@ -74,7 +74,7 @@ class SpinningIndicator(QWidget):
 
     def _rotate(self):
         """旋转角度"""
-        self._angle = (self._angle + 10) % 360
+        self._angle = (self._angle + 15) % 360
         self.update()  # 触发重绘
 
     def paintEvent(self, event):
@@ -82,33 +82,38 @@ class SpinningIndicator(QWidget):
         if not self._is_spinning:
             return
 
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        try:
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # 绘制背景圆形
-        center = self.rect().center()
-        radius = 16
+            # 绘制简单的旋转弧线
+            center_x = self.width() // 2
+            center_y = self.height() // 2
+            radius = 12
 
-        # 绘制外圈（渐变色）
-        gradient = QConicalGradient(center, self._angle)
-        gradient.setColorAt(0, QColor("#0078d4"))
-        gradient.setColorAt(0.5, QColor("#1e8ae6"))
-        gradient.setColorAt(1, QColor("#0078d4"))
+            # 绘制外圈
+            painter.setPen(QPen(QColor("#555555"), 2))
+            painter.drawEllipse(center_x - radius, center_y - radius, radius * 2, radius * 2)
 
-        pen = QPen(QColor("#0078d4"), 3)
-        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-        painter.setPen(pen)
-        painter.drawEllipse(center, radius, radius)
+            # 绘制旋转的弧线（4段，逐渐变淡）
+            for i in range(4):
+                angle = self._angle + i * 90
+                alpha = 255 - i * 60
+                color = QColor(0, 120, 212, alpha)
+                painter.setPen(QPen(color, 3, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
 
-        # 绘制旋转的弧线
-        painter.setPen(QPen(QColor("#1e8ae6"), 3))
-        rect = QRect(center.x() - radius, center.y() - radius, radius * 2, radius * 2)
-        painter.drawArc(rect, self._angle * 16, 270 * 16)  # 绘制270度的弧
+                # 使用整数参数避免浮点问题
+                start_angle = int(angle * 16)
+                span_angle = 20 * 16  # 20度
+                x = center_x - radius
+                y = center_y - radius
+                w = radius * 2
+                h = radius * 2
+                painter.drawArc(x, y, w, h, start_angle, span_angle)
 
-        # 绘制中心点
-        painter.setBrush(QColor("#ffffff"))
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawEllipse(center, 3, 3)
+        except Exception as e:
+            # 绘制失败时不应该崩溃
+            pass
 
     def mousePressEvent(self, event):
         """鼠标点击事件"""
@@ -288,6 +293,47 @@ class WorkerThread(QThread):
             self.finished.emit(result)
         except Exception as e:
             self.error.emit(str(e))
+
+
+class IndexWorker(QThread):
+    """索引工作线程 - 专门用于索引操作"""
+    finished = pyqtSignal(dict)
+    error = pyqtSignal(str)
+    progress = pyqtSignal(int, int, str)  # current, total, status
+
+    def __init__(self, indexer, directories, incremental, progress_callback):
+        super().__init__()
+        self.indexer = indexer
+        self.directories = directories
+        self.incremental = incremental
+        self.progress_callback = progress_callback
+        self._cancelled = False
+
+    def run(self):
+        try:
+            # 包装进度回调，同时发送信号
+            def wrapped_callback(current, total, filename, status):
+                if self._cancelled:
+                    return False
+                # 发送进度信号
+                self.progress.emit(current, total, status)
+                # 调用原始回调
+                if self.progress_callback:
+                    return self.progress_callback(current, total, filename, status)
+                return True
+
+            result = self.indexer.create_index(
+                self.directories,
+                incremental=self.incremental,
+                progress_callback=wrapped_callback
+            )
+            self.finished.emit(result)
+        except Exception as e:
+            import traceback
+            self.error.emit(f"{str(e)}\n{traceback.format_exc()}")
+
+    def cancel(self):
+        self._cancelled = True
 
 
 class SearchThread(QThread):
@@ -1491,8 +1537,11 @@ class MainWindow(QMainWindow):
 
         # 开始显示转圈动画（如果存在）
         if hasattr(self, 'spinning_indicator') and self.spinning_indicator:
-            self.spinning_indicator.start_spinning()
-            self._update_spinning_indicator_position()
+            try:
+                self.spinning_indicator.start_spinning()
+                self._update_spinning_indicator_position()
+            except Exception as e:
+                self.logger.warning(f"启动转圈动画失败: {e}")
 
         # 重置统计信息
         self._index_stats = {
@@ -1513,63 +1562,62 @@ class MainWindow(QMainWindow):
             progress_dialog.show()
 
         # 取消标志
-        cancel_flag = [False]  # 使用列表以便在闭包中修改
+        self._cancel_index = False
 
-        # 进度回调函数
+        # 使用 lambda 捕获 progress_dialog 的引用
         def progress_callback(current, total, filename, status):
             """索引进度回调"""
-            if cancel_flag[0] or progress_dialog.was_cancelled():
-                return False  # 返回 False 表示应该取消
+            if self._cancel_index:
+                return False
+
+            # 检查对话框是否仍然有效
+            try:
+                if progress_dialog and progress_dialog.was_cancelled():
+                    return False
+            except:
+                pass
 
             # 更新统计信息
             self._index_stats['current'] = current
             self._index_stats['total'] = total
             self._index_stats['status'] = status
 
-            # 发送信号更新UI
-            if hasattr(self, 'worker') and self.worker:
-                self.worker.progress.emit(current, total, filename, status)
+            # 通过信号更新UI（线程安全）
             return True
 
-        def index_task():
-            return self.indexer.create_index(
-                self.config.index.directories,
-                incremental=incremental,
-                progress_callback=progress_callback
-            )
+        # 创建索引任务
+        self._index_worker = IndexWorker(self.indexer, self.config.index.directories, incremental, progress_callback)
 
-        # 使用工作线程
-        self.worker = WorkerThread(index_task)
-
-        # 统计信息变量
-        self._stats_indexed = 0
-        self._stats_skipped = 0
-        self._stats_failed = 0
+        # 连接信号
+        self._index_worker.progress.connect(self._on_worker_progress)
+        self._index_worker.finished.connect(lambda stats: self._on_index_complete(stats, progress_dialog, show_dialog))
+        self._index_worker.error.connect(lambda err: self._on_index_error(err, progress_dialog, show_dialog))
 
         # 取消处理函数
         def on_cancel():
-            cancel_flag[0] = True
-            # 等待线程结束（最多等待2秒）
-            if hasattr(self, 'worker') and self.worker and self.worker.isRunning():
-                if not self.worker.wait(2000):
-                    # 如果线程不结束，强制终止
-                    self.worker.terminate()
-                    self.worker.wait(500)
+            self._cancel_index = True
+            if hasattr(self, '_index_worker') and self._index_worker and self._index_worker.isRunning():
+                self._index_worker.wait(2000)
             progress_dialog.close_with_cancel()
             self.status_label.setText("索引已取消")
 
-        # 连接信号
         progress_dialog.cancelled.connect(on_cancel)
-        self.worker.progress.connect(
-            lambda curr, total, fname, status: self._on_index_progress(curr, total, fname, status, progress_dialog)
-        )
-        self.worker.stats_update.connect(
-            lambda indexed, skipped, failed: self._on_index_stats_update(indexed, skipped, failed, progress_dialog)
-        )
-        self.worker.finished.connect(lambda stats: self._on_index_complete(stats, progress_dialog, show_dialog))
-        self.worker.error.connect(lambda err: self._on_index_error(err, progress_dialog, show_dialog))
 
-        self.worker.start()
+        # 启动工作线程
+        self._index_worker.start()
+
+    def _on_worker_progress(self, current, total, status):
+        """工作线程进度更新"""
+        self._index_stats['current'] = current
+        self._index_stats['total'] = total
+        self._index_stats['status'] = status
+
+        # 更新进度对话框
+        if self._current_progress_dialog and self._current_progress_dialog.isVisible():
+            try:
+                self._current_progress_dialog.update_progress(current, total, "", status)
+            except:
+                pass
 
     def _on_index_progress(self, current: int, total: int, filename: str, status: str, progress_dialog: 'IndexProgressDialog'):
         """索引进度更新"""
