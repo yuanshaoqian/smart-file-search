@@ -590,9 +590,9 @@ class FileIndexer:
             # 检查是否启用模糊搜索
             use_fuzzy = filters.get('fuzzy', True)
 
-            # 创建查询解析器 - 只搜索 filename 和 path，content 太大影响性能
+            # 创建查询解析器 - 搜索 filename、path 和 content
             parser = MultifieldParser(
-                ['filename', 'path'],
+                ['filename', 'path', 'content'],
                 schema=self.schema,
                 group=OrGroup
             )
@@ -607,13 +607,13 @@ class FileIndexer:
                 self.logger.error(f"解析查询失败 '{query_str}': {e}")
                 return []
 
-            # 优化：简化模糊查询逻辑，避免过于复杂的查询组合
+            # 优化：简化模糊查询逻辑
             if use_fuzzy and '~' not in query_str and '*' not in query_str and '?' not in query_str:
                 try:
                     self.logger.debug(f"构建优化模糊查询: '{query_str}'")
                     fuzzy_terms = []
 
-                    # 1. 前缀匹配（开头匹配，性能好）
+                    # 1. 文件名和路径的前缀匹配（性能好）
                     for field in ['filename', 'path']:
                         fuzzy_terms.append(Prefix(field, query_str))
 
@@ -621,19 +621,17 @@ class FileIndexer:
                     for field in ['filename', 'path']:
                         fuzzy_terms.append(Term(field, query_str))
 
-                    # 3. 对文件名使用后缀通配符（filename*，性能比 *filename 好）
-                    # 只有当查询词长度 >= 2 时才使用
-                    if len(query_str) >= 2:
-                        for field in ['filename']:
-                            fuzzy_terms.append(Prefix(field, query_str.lower()))
+                    # 3. 内容精确匹配（只做精确匹配，不做复杂模糊查询）
+                    fuzzy_terms.append(Term('content', query_str.lower()))
 
                     # 4. 对分词后的词进行简单匹配（限制词的数量）
-                    terms = query_str.split()[:5]  # 最多处理5个词
+                    terms = query_str.split()[:3]  # 最多处理3个词
                     for term in terms:
                         if len(term) >= 3:
-                            # 只对较长的词使用FuzzyTerm，且只用最小距离
-                            for field in ['filename']:
-                                fuzzy_terms.append(FuzzyTerm(field, term.lower(), maxdist=1))
+                            # 文件名使用FuzzyTerm
+                            fuzzy_terms.append(FuzzyTerm('filename', term.lower(), maxdist=1))
+                            # 内容只做精确匹配
+                            fuzzy_terms.append(Term('content', term.lower()))
 
                     # 组合模糊查询
                     if fuzzy_terms:
@@ -677,7 +675,8 @@ class FileIndexer:
                 search_results = searcher.search(query, limit=limit, optimize=False)
 
                 for hit in search_results:
-                    # 不读取完整的 content，只获取基本信息
+                    # 获取内容预览
+                    content = hit.get('content', '')
                     result = {
                         'path': hit['path'],
                         'filename': hit['filename'],
@@ -685,9 +684,9 @@ class FileIndexer:
                         'size': hit['size'],
                         'modified': hit['modified'],
                         'created': hit['created'],
-                        'content_preview': '',  # 延迟加载，不在搜索时获取
+                        'content_preview': self._get_content_preview(content),
                         'score': hit.score,
-                        'highlights': '',  # 延迟加载
+                        'highlights': '',  # 高亮可以后续按需生成
                     }
                     results.append(result)
 
