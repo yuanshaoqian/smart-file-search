@@ -286,16 +286,38 @@ class FileIndexer:
         stats['total_files'] = len(all_files)
         self.logger.info(f"找到 {stats['total_files']} 个文件")
 
-        # 如果是增量更新，检查哪些文件需要更新
+        # 如果是增量更新
         files_to_index = all_files
+        deleted_count = 0
+
         if incremental and self.ix.reader().doc_count() > 0:
+            # 步骤1: 清理索引中不需要的文件（已删除、被排除、扩展名不支持）
+            if progress_callback:
+                result = progress_callback(0, len(all_files), "", "正在清理索引...")
+                if result is False:
+                    stats['cancelled'] = True
+                    return stats
+
+            deleted_count = self._cleanup_index(all_files, progress_callback)
+            self.logger.info(f"清理索引完成，删除了 {deleted_count} 条记录")
+
+            # 检查是否取消
+            if check_cancel():
+                stats['cancelled'] = True
+                return stats
+
+            # 步骤2: 检查哪些文件需要更新
             if progress_callback:
                 result = progress_callback(0, len(all_files), "", "正在检查文件变化...")
                 if result is False:
                     stats['cancelled'] = True
                     return stats
+
             files_to_index = self._get_changed_files(all_files)
             self.logger.info(f"增量更新: {len(files_to_index)} 个文件需要更新")
+
+        # 更新统计信息
+        stats['deleted_files'] = deleted_count
 
         # 更新需要索引的文件总数
         files_to_process = len(files_to_index)
@@ -509,6 +531,7 @@ class FileIndexer:
     def _get_changed_files(self, all_files: List[str]) -> List[str]:
         """
         获取需要更新的文件列表（增量更新）
+        使用快速检测方法：先比较修改时间和大小，再比较checksum
 
         Args:
             all_files: 所有文件路径列表
@@ -520,51 +543,167 @@ class FileIndexer:
 
         try:
             with self.ix.searcher() as searcher:
+                # 构建已索引文件的快速查找字典
+                indexed_paths = set()
+                indexed_info = {}  # path -> (modified, size, checksum)
+
+                for doc in searcher.all_stored_fields():
+                    path = doc.get('path', '')
+                    if path:
+                        indexed_paths.add(path)
+                        indexed_info[path] = {
+                            'modified': doc.get('modified'),
+                            'size': doc.get('size', 0),
+                            'checksum': doc.get('checksum', '')
+                        }
+
+                self.logger.info(f"当前索引中有 {len(indexed_paths)} 个文件")
+
                 for file_path in all_files:
                     try:
+                        path_obj = Path(file_path)
+
                         # 检查文件是否存在
-                        if not Path(file_path).exists():
+                        if not path_obj.exists():
                             continue
 
-                        # 获取当前文件信息
-                        metadata = FileMetadata.from_path(file_path)
-                        if metadata is None:
-                            changed_files.append(file_path)
-                            continue
+                        # 快速获取文件信息（不解析内容）
+                        stat = path_obj.stat()
+                        current_modified = datetime.fromtimestamp(stat.st_mtime)
+                        current_size = stat.st_size
 
                         # 检查是否已索引
-                        results = searcher.search(Term('path', metadata.path), limit=1)
-                        if len(results) == 0:
-                            # 新文件
+                        if file_path not in indexed_paths:
+                            # 新文件，需要索引
                             changed_files.append(file_path)
                         else:
-                            # 检查文件是否变化
-                            stored_doc = results[0]
-                            stored_checksum = stored_doc.get('checksum', '')
+                            # 已索引，检查是否有变化
+                            stored_info = indexed_info[file_path]
+                            stored_modified = stored_info['modified']
+                            stored_size = stored_info['size']
 
-                            # 计算当前校验和
-                            try:
-                                content = self.parser.parse(file_path) or ""
-                            except Exception as e:
-                                self.logger.warning(f"解析文件失败 {file_path}: {e}")
+                            # 快速检测：先比较修改时间和大小
+                            needs_update = False
+
+                            if stored_modified is None or stored_size is None:
+                                needs_update = True
+                            elif isinstance(stored_modified, datetime):
+                                # 比较修改时间（允许1秒误差）
+                                time_diff = abs((current_modified - stored_modified).total_seconds())
+                                if time_diff > 1 or current_size != stored_size:
+                                    needs_update = True
+                            else:
+                                # 修改时间格式不匹配，需要更新
+                                needs_update = True
+
+                            if needs_update:
                                 changed_files.append(file_path)
-                                continue
 
-                            current_checksum = metadata.calculate_checksum(content)
-
-                            if stored_checksum != current_checksum:
-                                changed_files.append(file_path)
                     except Exception as e:
                         self.logger.warning(f"检查文件变化失败 {file_path}: {e}")
                         changed_files.append(file_path)
-                        continue
+
         except Exception as e:
             self.logger.error(f"获取变化文件列表失败: {e}")
-            # 如果检查失败，返回所有文件
+            # 出错时返回所有文件
             return all_files
 
         return changed_files
-    
+
+    def _cleanup_index(self, all_files: List[str], progress_callback=None) -> int:
+        """
+        清理索引中不需要的文件
+        - 删除文件系统中已不存在的文件
+        - 删除符合新排除规则的文件
+        - 删除不符合扩展名要求的文件
+
+        Args:
+            all_files: 当前文件系统中所有文件路径列表
+            progress_callback: 进度回调
+
+        Returns:
+            删除的文档数量
+        """
+        deleted_count = 0
+
+        try:
+            current_files_set = set(all_files)
+
+            # 收集需要删除的文件
+            files_to_delete = []
+
+            with self.ix.searcher() as searcher:
+                total_indexed = searcher.doc_count()
+
+                if total_indexed == 0:
+                    return 0
+
+                if progress_callback:
+                    result = progress_callback(0, total_indexed, "", "正在检查需要清理的文件...")
+                    if result is False:
+                        return 0
+
+                checked = 0
+                for doc in searcher.all_stored_fields():
+                    path = doc.get('path', '')
+                    if not path:
+                        continue
+
+                    checked += 1
+                    if progress_callback and checked % 100 == 0:
+                        result = progress_callback(checked, total_indexed, path, "检查索引清理...")
+                        if result is False:
+                            break
+
+                    should_delete = False
+                    delete_reason = ""
+
+                    # 检查1: 文件是否还存在
+                    if path not in current_files_set:
+                        should_delete = True
+                        delete_reason = "文件已删除"
+                    else:
+                        # 检查2: 是否符合排除规则
+                        path_obj = Path(path)
+                        for pattern in self.config.index.exclude_patterns:
+                            if fnmatch.fnmatch(path_obj.name, pattern) or fnmatch.fnmatch(path, pattern):
+                                should_delete = True
+                                delete_reason = f"符合排除规则: {pattern}"
+                                break
+
+                        # 检查3: 扩展名是否支持
+                        if not should_delete:
+                            ext = path_obj.suffix.lower()
+                            if ext not in self.config.index.supported_extensions:
+                                should_delete = True
+                                delete_reason = f"扩展名不支持: {ext}"
+
+                    if should_delete:
+                        files_to_delete.append((path, delete_reason))
+
+            # 执行删除
+            if files_to_delete:
+                self.logger.info(f"需要清理 {len(files_to_delete)} 个文件")
+                writer = self.ix.writer()
+
+                for path, reason in files_to_delete:
+                    try:
+                        writer.delete_by_term('path', path)
+                        deleted_count += 1
+                        self.logger.debug(f"删除索引: {path} ({reason})")
+                    except Exception as e:
+                        self.logger.warning(f"删除索引失败 {path}: {e}")
+
+                writer.commit()
+                self.logger.info(f"清理完成，删除了 {deleted_count} 个索引记录")
+
+        except Exception as e:
+            self.logger.error(f"清理索引失败: {e}")
+            import traceback
+            self.logger.debug(traceback.format_exc())
+
+        return deleted_count
+
     def search(self, query_str: str, limit: int = 100, filters: Optional[Dict] = None) -> List[Dict[str, Any]]:
         """
         搜索文件
