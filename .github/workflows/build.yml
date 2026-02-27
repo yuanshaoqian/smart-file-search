@@ -31,10 +31,9 @@ jobs:
 
     - name: Build executable
       run: |
-        pyinstaller --clean --noconfirm --onedir --windowed `
+        pyinstaller --clean --noconfirm --onefile --windowed `
           --name SmartFileSearch `
           --add-data "config.yaml;." `
-          --add-data "src;src" `
           --hidden-import PyQt6.QtCore `
           --hidden-import PyQt6.QtGui `
           --hidden-import PyQt6.QtWidgets `
@@ -51,6 +50,7 @@ jobs:
           --hidden-import watchdog.observers `
           --hidden-import watchdog.events `
           --hidden-import chardet `
+          --collect-all PyQt6 `
           --paths src `
           src/main.py
       shell: pwsh
@@ -58,7 +58,7 @@ jobs:
     - name: Create portable version
       run: |
         New-Item -ItemType Directory -Force -Path dist\SmartFileSearch-Portable
-        Copy-Item dist\SmartFileSearch\SmartFileSearch.exe dist\SmartFileSearch-Portable\
+        Copy-Item dist\SmartFileSearch.exe dist\SmartFileSearch-Portable\
         Copy-Item config.yaml dist\SmartFileSearch-Portable\
         Copy-Item README.md dist\SmartFileSearch-Portable\ -ErrorAction SilentlyContinue
         Copy-Item start.bat dist\SmartFileSearch-Portable\ -ErrorAction SilentlyContinue
@@ -76,7 +76,7 @@ jobs:
       with:
         name: SmartFileSearch-Windows
         path: |
-          dist/SmartFileSearch/SmartFileSearch.exe
+          dist/SmartFileSearch.exe
           dist/SmartFileSearch-Windows-Portable.zip
 
   # 构建 macOS 版本
@@ -100,10 +100,9 @@ jobs:
 
     - name: Build executable
       run: |
-        pyinstaller --clean --noconfirm --onedir --windowed \
+        pyinstaller --clean --noconfirm --onefile --windowed \
           --name SmartFileSearch \
           --add-data "config.yaml:." \
-          --add-data "src:src" \
           --hidden-import PyQt6.QtCore \
           --hidden-import PyQt6.QtGui \
           --hidden-import PyQt6.QtWidgets \
@@ -120,13 +119,14 @@ jobs:
           --hidden-import watchdog.observers \
           --hidden-import watchdog.events \
           --hidden-import chardet \
+          --collect-all PyQt6 \
           --paths src \
           src/main.py
 
     - name: Create portable version
       run: |
         mkdir -p dist/SmartFileSearch-Portable
-        cp dist/SmartFileSearch/SmartFileSearch dist/SmartFileSearch-Portable/
+        cp dist/SmartFileSearch dist/SmartFileSearch-Portable/
         cp config.yaml dist/SmartFileSearch-Portable/
         cp README.md dist/SmartFileSearch-Portable/ 2>/dev/null || true
         printf '#!/bin/bash\n./SmartFileSearch\n' > dist/SmartFileSearch-Portable/start.sh
@@ -154,7 +154,7 @@ jobs:
       with:
         name: SmartFileSearch-macOS
         path: |
-          dist/SmartFileSearch/SmartFileSearch
+          dist/SmartFileSearch
           dist/SmartFileSearch-macOS-Portable.zip
 
   # 创建发布
@@ -182,9 +182,9 @@ jobs:
     - name: Prepare release files
       run: |
         mkdir -p release
-        cp dist/windows/SmartFileSearch/SmartFileSearch.exe release/
+        cp dist/windows/SmartFileSearch.exe release/
         cp dist/windows/SmartFileSearch-Windows-Portable.zip release/
-        cp dist/macos/SmartFileSearch/SmartFileSearch release/SmartFileSearch-macOS
+        cp dist/macos/SmartFileSearch release/SmartFileSearch-macOS
         cp dist/macos/SmartFileSearch-macOS-Portable.zip release/
 
     - name: Create Release
