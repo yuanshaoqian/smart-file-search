@@ -34,6 +34,8 @@ DEFAULT_CONFIG = {
             ".DS_Store",
             "Thumbs.db",
         ],
+        "include_patterns": [],  # 包含模式列表
+        "filter_mode": "exclude",  # 过滤模式: "exclude" 或 "include"
         "max_file_size": 104857600,  # 100MB
         "supported_extensions": [
             ".txt",
@@ -124,6 +126,8 @@ class IndexConfig:
     """索引配置"""
     directories: List[str] = field(default_factory=lambda: ["~/Documents", "~/Downloads"])
     exclude_patterns: List[str] = field(default_factory=list)
+    include_patterns: List[str] = field(default_factory=list)  # 包含模式
+    filter_mode: str = "exclude"  # 过滤模式: "exclude" 或 "include"
     max_file_size: int = 104857600
     supported_extensions: List[str] = field(default_factory=list)
     index_dir: str = "data/indexdir"

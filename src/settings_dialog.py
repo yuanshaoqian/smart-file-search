@@ -136,17 +136,29 @@ class SettingsDialog(QDialog):
         # 文件过滤
         filter_group = QGroupBox("文件过滤")
         filter_layout = QFormLayout()
-        
+
+        # 过滤模式选择
+        self.filter_mode_combo = QComboBox()
+        self.filter_mode_combo.addItem("排除模式 - 排除匹配的文件", "exclude")
+        self.filter_mode_combo.addItem("包含模式 - 只索引匹配的文件", "include")
+        self.filter_mode_combo.currentIndexChanged.connect(self._on_filter_mode_changed)
+        filter_layout.addRow("过滤模式:", self.filter_mode_combo)
+
         self.exclude_patterns = QTextEdit()
-        self.exclude_patterns.setMaximumHeight(100)
+        self.exclude_patterns.setMaximumHeight(80)
         self.exclude_patterns.setPlaceholderText("每行一个排除模式，例如：\n*.tmp\n*.log\n.git")
         filter_layout.addRow("排除模式:", self.exclude_patterns)
-        
+
+        self.include_patterns = QTextEdit()
+        self.include_patterns.setMaximumHeight(80)
+        self.include_patterns.setPlaceholderText("每行一个包含模式，例如：\n*.py\n*.md\nsrc/")
+        filter_layout.addRow("包含模式:", self.include_patterns)
+
         self.max_file_size = QSpinBox()
         self.max_file_size.setRange(1, 1000)
         self.max_file_size.setSuffix(" MB")
         filter_layout.addRow("最大文件大小:", self.max_file_size)
-        
+
         filter_group.setLayout(filter_layout)
         layout.addWidget(filter_group)
         
@@ -272,22 +284,35 @@ class SettingsDialog(QDialog):
         lang_index = self.lang_combo.findData(self.config.language)
         if lang_index >= 0:
             self.lang_combo.setCurrentIndex(lang_index)
-        
+
         self.auto_update_check.setChecked(self.config.update_check.enabled)
-        
+
         # 索引
         self.dir_list.clear()
         for dir_path in self.config.index.directories:
             self.dir_list.addItem(dir_path)
-        
+
+        # 过滤模式
+        filter_mode = getattr(self.config.index, 'filter_mode', 'exclude')
+        filter_mode_index = self.filter_mode_combo.findData(filter_mode)
+        if filter_mode_index >= 0:
+            self.filter_mode_combo.setCurrentIndex(filter_mode_index)
+
         self.exclude_patterns.setText(
             '\n'.join(self.config.index.exclude_patterns)
         )
-        
+
+        # 包含模式
+        include_patterns = getattr(self.config.index, 'include_patterns', [])
+        self.include_patterns.setText('\n'.join(include_patterns))
+
+        # 更新过滤模式的UI状态
+        self._on_filter_mode_changed(self.filter_mode_combo.currentIndex())
+
         self.max_file_size.setValue(
             self.config.index.max_file_size // (1024 * 1024)
         )
-        
+
         self.update_interval.setValue(self.config.index.update_interval)
         self.incremental_check.setChecked(self.config.index.incremental)
         
@@ -331,9 +356,18 @@ class SettingsDialog(QDialog):
                 for i in range(self.dir_list.count())
             ]
 
+            # 过滤模式
+            self.config.index.filter_mode = self.filter_mode_combo.currentData()
+
             self.config.index.exclude_patterns = [
                 line.strip()
                 for line in self.exclude_patterns.toPlainText().split('\n')
+                if line.strip()
+            ]
+
+            self.config.index.include_patterns = [
+                line.strip()
+                for line in self.include_patterns.toPlainText().split('\n')
                 if line.strip()
             ]
 
@@ -436,6 +470,22 @@ class SettingsDialog(QDialog):
         if file_path:
             self.model_path.setText(file_path)
     
+    def _on_filter_mode_changed(self, index: int):
+        """过滤模式改变"""
+        mode = self.filter_mode_combo.currentData()
+        if mode == "exclude":
+            # 排除模式：启用排除模式输入，禁用包含模式输入
+            self.exclude_patterns.setEnabled(True)
+            self.include_patterns.setEnabled(False)
+            self.exclude_patterns.setStyleSheet("")
+            self.include_patterns.setStyleSheet("color: #666; background-color: #3a3a3a;")
+        else:
+            # 包含模式：禁用排除模式输入，启用包含模式输入
+            self.exclude_patterns.setEnabled(False)
+            self.include_patterns.setEnabled(True)
+            self.exclude_patterns.setStyleSheet("color: #666; background-color: #3a3a3a;")
+            self.include_patterns.setStyleSheet("")
+
     def _on_ai_enabled_changed(self, enabled: bool):
         """AI 启用状态改变"""
         self.model_path.setEnabled(enabled)

@@ -336,6 +336,7 @@ class IndexWorker(QThread):
     finished = pyqtSignal(dict)
     error = pyqtSignal(str)
     progress = pyqtSignal(int, int, str)  # current, total, status
+    stats_update = pyqtSignal(int, int, int)  # indexed, skipped, failed
 
     def __init__(self, indexer, directories, incremental, progress_callback):
         super().__init__()
@@ -344,15 +345,26 @@ class IndexWorker(QThread):
         self.incremental = incremental
         self.progress_callback = progress_callback
         self._cancelled = False
+        self._last_stats = (0, 0, 0)  # 上次发送的统计信息
 
     def run(self):
         try:
             # 包装进度回调，同时发送信号
-            def wrapped_callback(current, total, filename, status):
+            def wrapped_callback(current, total, filename, status, stats=None):
                 if self._cancelled:
                     return False
                 # 发送进度信号
                 self.progress.emit(current, total, status)
+                # 发送统计更新信号
+                if stats:
+                    indexed = stats.get('indexed_files', 0)
+                    skipped = stats.get('skipped_files', 0)
+                    failed = stats.get('failed_files', 0)
+                    new_stats = (indexed, skipped, failed)
+                    # 只在统计信息变化时发送
+                    if new_stats != self._last_stats:
+                        self._last_stats = new_stats
+                        self.stats_update.emit(indexed, skipped, failed)
                 # 调用原始回调
                 if self.progress_callback:
                     return self.progress_callback(current, total, filename, status)
@@ -1131,6 +1143,15 @@ class MainWindow(QMainWindow):
             return
 
         self.logger.info("触发自动更新索引")
+
+        # 重新加载配置以获取最新的排除规则
+        from .config import reload_config
+        self.config = reload_config()
+        # 同时更新 indexer 的配置引用
+        if self.indexer:
+            self.indexer.config = self.config
+        self.logger.info("已重新加载配置，使用最新的排除规则")
+
         self._do_index(incremental=True, show_dialog=False)
 
     def _update_index_stats(self, current: int, total: int, indexed: int, skipped: int, failed: int, status: str = ""):
@@ -1633,6 +1654,7 @@ class MainWindow(QMainWindow):
 
         # 连接信号
         self._index_worker.progress.connect(self._on_worker_progress)
+        self._index_worker.stats_update.connect(lambda i, s, f: self._on_index_stats_update(i, s, f, progress_dialog))
         self._index_worker.finished.connect(lambda stats: self._on_index_complete(stats, progress_dialog, show_dialog))
         self._index_worker.error.connect(lambda err: self._on_index_error(err, progress_dialog, show_dialog))
 

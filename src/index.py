@@ -122,15 +122,15 @@ class FileIndexer:
     def _should_index(self, file_path: str) -> bool:
         """
         检查是否应该索引该文件
-        
+
         Args:
             file_path: 文件路径
-            
+
         Returns:
             是否应该索引
         """
         path_obj = Path(file_path)
-        
+
         # 检查文件大小
         try:
             file_size = path_obj.stat().st_size
@@ -138,27 +138,49 @@ class FileIndexer:
                 return False
         except:
             return False
-        
+
         # 检查扩展名
         ext = path_obj.suffix.lower()
         if ext not in self.config.index.supported_extensions:
             return False
-        
-        # 检查排除模式
-        for pattern in self.config.index.exclude_patterns:
-            if fnmatch.fnmatch(path_obj.name, pattern):
-                return False
-            if fnmatch.fnmatch(str(path_obj), pattern):
-                return False
-        
+
+        # 获取过滤模式（默认为排除模式）
+        filter_mode = getattr(self.config.index, 'filter_mode', 'exclude')
+
+        if filter_mode == 'include':
+            # 包含模式：只索引匹配包含模式的文件
+            include_patterns = getattr(self.config.index, 'include_patterns', [])
+            if include_patterns:
+                matched = False
+                for pattern in include_patterns:
+                    if fnmatch.fnmatch(path_obj.name, pattern):
+                        matched = True
+                        break
+                    if fnmatch.fnmatch(str(path_obj), pattern):
+                        matched = True
+                        break
+                    # 支持目录匹配
+                    if fnmatch.fnmatch(str(path_obj.parent), f"*{pattern}*"):
+                        matched = True
+                        break
+                if not matched:
+                    return False
+        else:
+            # 排除模式：排除匹配排除模式的文件
+            for pattern in self.config.index.exclude_patterns:
+                if fnmatch.fnmatch(path_obj.name, pattern):
+                    return False
+                if fnmatch.fnmatch(str(path_obj), pattern):
+                    return False
+
         # 检查隐藏文件
         if self.config.advanced.ignore_hidden and path_obj.name.startswith('.'):
             return False
-        
+
         # 检查是否支持解析
         if not self.parser.is_supported(file_path):
             return False
-        
+
         return True
     
     def _index_file(self, file_path: str) -> Optional[Dict[str, Any]]:
@@ -388,7 +410,8 @@ class FileIndexer:
                                 completed_count,
                                 files_to_process,
                                 file_path,
-                                f"正在提交批次 {batch_count}..."
+                                f"正在提交批次 {batch_count}...",
+                                stats
                             )
 
                         try:
@@ -430,7 +453,8 @@ class FileIndexer:
                                 completed_count,
                                 files_to_process,
                                 file_path,
-                                f"已索引 {completed_count}/{files_to_process} 个文件 (批次{batch_count})"
+                                f"已索引 {completed_count}/{files_to_process} 个文件 (批次{batch_count})",
+                                stats
                             )
                             if result is False:
                                 for f in futures:
@@ -444,7 +468,8 @@ class FileIndexer:
                             completed_count,
                             files_to_process,
                             file_path,
-                            f"已索引 {completed_count}/{files_to_process} 个文件"
+                            f"已索引 {completed_count}/{files_to_process} 个文件",
+                            stats
                         )
                         if result is False:
                             for f in futures:
@@ -467,7 +492,8 @@ class FileIndexer:
                             completed_count,
                             files_to_process,
                             file_path,
-                            f"索引失败: {Path(file_path).name}"
+                            f"索引失败: {Path(file_path).name}",
+                            stats
                         )
 
             # 提交剩余的文档
@@ -476,7 +502,7 @@ class FileIndexer:
                 docs_count = len(pending_docs)
                 self.logger.info(f"提交最后批次 {batch_count} ({docs_count} 个文件)...")
                 if progress_callback:
-                    progress_callback(files_to_process, files_to_process, "", "正在提交最后批次...")
+                    progress_callback(files_to_process, files_to_process, "", "正在提交最后批次...", stats)
                 try:
                     for doc in pending_docs:
                         writer.delete_by_term('path', doc['path'])
@@ -663,13 +689,36 @@ class FileIndexer:
                         should_delete = True
                         delete_reason = "文件已删除"
                     else:
-                        # 检查2: 是否符合排除规则
                         path_obj = Path(path)
-                        for pattern in self.config.index.exclude_patterns:
-                            if fnmatch.fnmatch(path_obj.name, pattern) or fnmatch.fnmatch(path, pattern):
-                                should_delete = True
-                                delete_reason = f"符合排除规则: {pattern}"
-                                break
+
+                        # 获取过滤模式
+                        filter_mode = getattr(self.config.index, 'filter_mode', 'exclude')
+
+                        if filter_mode == 'include':
+                            # 包含模式：检查是否匹配包含模式
+                            include_patterns = getattr(self.config.index, 'include_patterns', [])
+                            if include_patterns:
+                                matched = False
+                                for pattern in include_patterns:
+                                    if fnmatch.fnmatch(path_obj.name, pattern):
+                                        matched = True
+                                        break
+                                    if fnmatch.fnmatch(path, pattern):
+                                        matched = True
+                                        break
+                                    if fnmatch.fnmatch(str(path_obj.parent), f"*{pattern}*"):
+                                        matched = True
+                                        break
+                                if not matched:
+                                    should_delete = True
+                                    delete_reason = "不符合包含模式"
+                        else:
+                            # 排除模式：检查是否符合排除规则
+                            for pattern in self.config.index.exclude_patterns:
+                                if fnmatch.fnmatch(path_obj.name, pattern) or fnmatch.fnmatch(path, pattern):
+                                    should_delete = True
+                                    delete_reason = f"符合排除规则: {pattern}"
+                                    break
 
                         # 检查3: 扩展名是否支持
                         if not should_delete:
@@ -825,7 +874,7 @@ class FileIndexer:
                         'created': hit['created'],
                         'content_preview': self._get_content_preview(content),
                         'score': hit.score,
-                        'highlights': '',  # 高亮可以后续按需生成
+                        'highlights': self._generate_highlights(content, query_str),
                     }
                     results.append(result)
 
@@ -844,11 +893,11 @@ class FileIndexer:
         """获取内容预览"""
         if not content:
             return ""
-        
+
         lines = content.split('\n')
         preview_lines = []
         total_chars = 0
-        
+
         for line in lines[:max_lines]:
             if total_chars + len(line) > max_chars:
                 # 截断最后一行
@@ -856,11 +905,61 @@ class FileIndexer:
                 if remaining > 3:
                     preview_lines.append(line[:remaining] + '...')
                 break
-            
+
             preview_lines.append(line)
             total_chars += len(line) + 1  # +1 为换行符
-        
+
         return '\n'.join(preview_lines)
+
+    def _generate_highlights(self, content: str, query_str: str, max_chars: int = 150) -> str:
+        """
+        生成内容高亮片段
+
+        Args:
+            content: 文件内容
+            query_str: 搜索查询字符串
+            max_chars: 最大字符数
+
+        Returns:
+            包含匹配关键词的片段
+        """
+        if not content or not query_str:
+            return ""
+
+        # 提取查询词
+        query_terms = query_str.lower().split()
+        if not query_terms:
+            return ""
+
+        content_lower = content.lower()
+        highlights = []
+
+        # 查找每个查询词的位置
+        for term in query_terms:
+            if len(term) < 2:
+                continue
+
+            pos = content_lower.find(term)
+            if pos != -1:
+                # 提取匹配位置前后的上下文
+                start = max(0, pos - 30)
+                end = min(len(content), pos + len(term) + 50)
+
+                snippet = content[start:end]
+
+                # 添加省略号
+                if start > 0:
+                    snippet = "..." + snippet
+                if end < len(content):
+                    snippet = snippet + "..."
+
+                highlights.append(snippet)
+
+                # 最多返回3个高亮片段
+                if len(highlights) >= 3:
+                    break
+
+        return " | ".join(highlights) if highlights else ""
     
     def get_file_count(self) -> int:
         """获取索引中的文件数量"""
