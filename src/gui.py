@@ -751,18 +751,20 @@ class FilterPanel(QWidget):
 
 class AIAnswerArea(QTextEdit):
     """AI 回答显示区域"""
-    
-    def __init__(self, parent=None):
+
+    def __init__(self, parent=None, config=None):
         super().__init__(parent)
+        self.config = config
         self.setup_ui()
-    
+
     def setup_ui(self):
         """设置界面"""
         self.setReadOnly(True)
         self.setFont(QFont("Microsoft YaHei", 11))
         self.setPlaceholderText("AI 回答将显示在这里...")
         self.setMinimumHeight(150)
-        
+        self.setOpenExternalLinks(True)
+
         # 设置样式
         self.setStyleSheet("""
             QTextEdit {
@@ -773,12 +775,95 @@ class AIAnswerArea(QTextEdit):
                 padding: 10px;
             }
         """)
-    
-    def display_answer(self, answer: str, is_ai: bool = True):
+
+    def _get_highlight_color(self) -> str:
+        """获取高亮颜色"""
+        if self.config:
+            return getattr(self.config.gui, 'highlight_color', '#FFD700')
+        return '#FFD700'
+
+    def _highlight_keywords(self, text: str, keywords: List[str]) -> str:
+        """高亮文本中的关键字"""
+        if not keywords:
+            return text
+
+        highlight_color = self._get_highlight_color()
+
+        # 转义HTML特殊字符
+        import html
+        escaped_text = html.escape(text)
+
+        # 对每个关键字进行高亮（不区分大小写）
+        for keyword in keywords:
+            if not keyword or len(keyword) < 2:
+                continue
+            # 创建正则表达式，不区分大小写
+            import re
+            pattern = re.compile(r'(' + re.escape(keyword) + r')', re.IGNORECASE)
+            escaped_text = pattern.sub(
+                f'<span style="background-color: {highlight_color}; color: #000000; font-weight: bold;">\\1</span>',
+                escaped_text
+            )
+
+        return escaped_text
+
+    def display_answer(self, answer: str, is_ai: bool = True, keywords: List[str] = None):
         """显示回答"""
         prefix = "🤖 AI 回答:\n\n" if is_ai else "📋 搜索结果:\n\n"
-        self.setText(prefix + answer)
-    
+
+        if keywords:
+            # 高亮关键字
+            highlighted = self._highlight_keywords(answer, keywords)
+            self.setHtml(f"<div style='color: #ffffff;'>{prefix}{highlighted}</div>")
+        else:
+            self.setText(prefix + answer)
+
+    def display_search_results(self, query: str, results: List[Dict], is_ai: bool = True):
+        """显示搜索结果，带高亮和内容匹配"""
+        highlight_color = self._get_highlight_color()
+        keywords = query.split()
+
+        lines = []
+        prefix = "🤖 AI 搜索结果:\n\n" if is_ai else "📋 搜索结果:\n\n"
+        lines.append(f'<div style="color: #ffffff; font-family: Microsoft YaHei;">')
+        lines.append(f'<p style="font-weight: bold; margin-bottom: 10px;">{"🤖 AI 搜索结果:" if is_ai else "📋 搜索结果:"}</p>')
+        lines.append(f'<p>找到 <b>{len(results)}</b> 个相关文件：</p>')
+
+        for i, result in enumerate(results[:10], 1):
+            filename = result.get('filename', '未知')
+            size = result.get('size', 0)
+            size_str = self._format_size(size)
+
+            # 高亮文件名中的关键字
+            highlighted_filename = self._highlight_keywords(filename, keywords)
+
+            lines.append(f'<p style="margin-top: 8px;"><b>{i}. {highlighted_filename}</b> ({size_str})</p>')
+
+            # 显示内容匹配
+            highlights = result.get('highlights', '')
+            content_preview = result.get('content_preview', '')
+
+            if highlights:
+                highlighted_content = self._highlight_keywords(highlights[:150], keywords)
+                lines.append(f'<p style="margin-left: 15px; color: #aaaaaa; font-size: 10px;">匹配内容: {highlighted_content}</p>')
+            elif content_preview:
+                highlighted_content = self._highlight_keywords(content_preview[:100], keywords)
+                lines.append(f'<p style="margin-left: 15px; color: #aaaaaa; font-size: 10px;">预览: {highlighted_content}</p>')
+
+        if len(results) > 10:
+            lines.append(f'<p style="margin-top: 10px; color: #888888;">... 还有 {len(results) - 10} 个结果</p>')
+
+        lines.append('</div>')
+        self.setHtml('\n'.join(lines))
+
+    def _format_size(self, size: int) -> str:
+        """格式化文件大小"""
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if size < 1024:
+                return f"{size:.1f} {unit}"
+            size /= 1024
+        return f"{size:.1f} TB"
+
     def clear_answer(self):
         """清空回答"""
         self.clear()
@@ -899,8 +984,8 @@ class MainWindow(QMainWindow):
         # AI 回答区域
         ai_group = QGroupBox("AI 智能回答")
         ai_layout = QVBoxLayout(ai_group)
-        
-        self.ai_answer_area = AIAnswerArea()
+
+        self.ai_answer_area = AIAnswerArea(config=self.config)
         ai_layout.addWidget(self.ai_answer_area)
         
         right_layout.addWidget(ai_group)
@@ -1406,12 +1491,12 @@ class MainWindow(QMainWindow):
         # 更新状态
         self.status_label.setText(f"搜索完成，找到 {len(results)} 个结果")
 
-        # 生成简单回答
+        # 生成简单回答，带高亮
+        query = self.search_input.text().strip()
         if results:
-            answer = self._generate_simple_answer(results)
-            self.ai_answer_area.display_answer(answer, is_ai=False)
+            self.ai_answer_area.display_search_results(query, results, is_ai=False)
         else:
-            self.ai_answer_area.display_answer("未找到匹配的文件。", is_ai=False)
+            self.ai_answer_area.display_answer("未找到匹配的文件。", is_ai=False, keywords=query.split())
 
     def _on_search_error(self, error_msg: str):
         """搜索错误回调"""
@@ -1463,13 +1548,12 @@ class MainWindow(QMainWindow):
         # 生成 AI 回答
         query = self.search_input.text().strip()
         if results:
-            # 在后台线程中生成AI回答
-            self.ai_answer_area.display_answer("正在生成回答...", is_ai=True)
-            # 使用QTimer延迟执行，避免阻塞UI
-            QTimer.singleShot(100, lambda: self._generate_ai_answer(query, results, analysis))
+            # 显示带高亮的搜索结果
+            self.ai_answer_area.display_search_results(query, results, is_ai=True)
+            self.status_label.setText("AI 搜索完成")
         else:
             answer = f"未找到与 '{query}' 相关的文件。\n\nAI 分析: {analysis.intent}"
-            self.ai_answer_area.display_answer(answer, is_ai=True)
+            self.ai_answer_area.display_answer(answer, is_ai=True, keywords=query.split())
             self.status_label.setText("AI 搜索完成")
 
     def _generate_ai_answer(self, query: str, results: List[Dict], analysis):

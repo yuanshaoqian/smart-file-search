@@ -809,17 +809,18 @@ class FileIndexer:
                     for field in ['filename', 'path']:
                         fuzzy_terms.append(Term(field, query_str))
 
-                    # 3. 内容精确匹配（只做精确匹配，不做复杂模糊查询）
-                    fuzzy_terms.append(Term('content', query_str.lower()))
+                    # 3. 通配符匹配 - 支持部分匹配（如 10.127 匹配 10.127.198.12）
+                    for field in ['filename', 'path', 'content']:
+                        fuzzy_terms.append(Wildcard(field, f'*{query_str}*'))
 
                     # 4. 对分词后的词进行简单匹配（限制词的数量）
                     terms = query_str.split()[:3]  # 最多处理3个词
                     for term in terms:
-                        if len(term) >= 3:
+                        if len(term) >= 2:
                             # 文件名使用FuzzyTerm
                             fuzzy_terms.append(FuzzyTerm('filename', term.lower(), maxdist=1))
-                            # 内容只做精确匹配
-                            fuzzy_terms.append(Term('content', term.lower()))
+                            # 内容使用通配符匹配
+                            fuzzy_terms.append(Wildcard('content', f'*{term.lower()}*'))
 
                     # 组合模糊查询
                     if fuzzy_terms:

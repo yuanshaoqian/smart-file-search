@@ -246,37 +246,63 @@ class SettingsDialog(QDialog):
         """创建界面设置页"""
         widget = QWidget()
         layout = QVBoxLayout(widget)
-        
+
         # 主题
         theme_group = QGroupBox("主题")
         theme_layout = QFormLayout()
-        
+
         self.theme_combo = QComboBox()
         self.theme_combo.addItem("深色", "dark")
         self.theme_combo.addItem("浅色", "light")
         self.theme_combo.addItem("跟随系统", "system")
         theme_layout.addRow("主题:", self.theme_combo)
-        
+
         theme_group.setLayout(theme_layout)
         layout.addWidget(theme_group)
-        
+
         # 显示设置
         display_group = QGroupBox("显示")
         display_layout = QFormLayout()
-        
+
         self.max_results = QSpinBox()
         self.max_results.setRange(50, 1000)
         display_layout.addRow("最大结果数:", self.max_results)
-        
+
         self.preview_lines = QSpinBox()
         self.preview_lines.setRange(5, 50)
         display_layout.addRow("预览行数:", self.preview_lines)
-        
+
+        # 高亮颜色设置
+        highlight_layout = QHBoxLayout()
+        self.highlight_color_edit = QLineEdit()
+        self.highlight_color_edit.setMaximumWidth(100)
+        self.highlight_color_btn = QPushButton("选择颜色")
+        self.highlight_color_btn.setMaximumWidth(80)
+        self.highlight_color_btn.clicked.connect(self._choose_highlight_color)
+        self.highlight_preview = QLabel("  预览  ")
+        self.highlight_preview.setStyleSheet("background-color: #FFD700; border-radius: 3px;")
+        highlight_layout.addWidget(self.highlight_color_edit)
+        highlight_layout.addWidget(self.highlight_color_btn)
+        highlight_layout.addWidget(self.highlight_preview)
+        highlight_layout.addStretch()
+        display_layout.addRow("高亮颜色:", highlight_layout)
+
         display_group.setLayout(display_layout)
         layout.addWidget(display_group)
-        
+
         layout.addStretch()
         return widget
+
+    def _choose_highlight_color(self):
+        """选择高亮颜色"""
+        from PyQt6.QtWidgets import QColorDialog
+        from PyQt6.QtGui import QColor
+        current_color = self.highlight_color_edit.text() or "#FFD700"
+        color = QColorDialog.getColor(QColor(current_color), self, "选择高亮颜色")
+        if color.isValid():
+            hex_color = color.name()
+            self.highlight_color_edit.setText(hex_color)
+            self.highlight_preview.setStyleSheet(f"background-color: {hex_color}; border-radius: 3px;")
     
     def _load_settings(self):
         """加载当前设置"""
@@ -327,10 +353,15 @@ class SettingsDialog(QDialog):
         theme_index = self.theme_combo.findData(self.config.gui.theme)
         if theme_index >= 0:
             self.theme_combo.setCurrentIndex(theme_index)
-        
+
         self.max_results.setValue(self.config.gui.max_results)
         self.preview_lines.setValue(self.config.gui.preview_max_lines)
-        
+
+        # 高亮颜色
+        highlight_color = getattr(self.config.gui, 'highlight_color', '#FFD700')
+        self.highlight_color_edit.setText(highlight_color)
+        self.highlight_preview.setStyleSheet(f"background-color: {highlight_color}; border-radius: 3px;")
+
         # 更新 AI 控件状态
         self._on_ai_enabled_changed(self.config.ai.enabled)
     
@@ -411,6 +442,11 @@ class SettingsDialog(QDialog):
             self.config.gui.theme = self.theme_combo.currentData()
             self.config.gui.max_results = self.max_results.value()
             self.config.gui.preview_max_lines = self.preview_lines.value()
+
+            # 高亮颜色
+            highlight_color = self.highlight_color_edit.text().strip()
+            if highlight_color:
+                self.config.gui.highlight_color = highlight_color
 
             # 验证配置
             if not self.config.index.directories:

@@ -86,6 +86,7 @@ DEFAULT_CONFIG = {
         "autocomplete_max_items": 10,
         "sidebar_width": 250,
         "sidebar_visible": True,
+        "highlight_color": "#FFD700",
     },
     "search": {
         "default_fields": ["filename", "content"],
@@ -162,6 +163,7 @@ class GUIConfig:
     autocomplete_max_items: int = 10
     sidebar_width: int = 250
     sidebar_visible: bool = True
+    highlight_color: str = "#FFD700"  # 高亮颜色，默认金黄色
 
 
 @dataclass
