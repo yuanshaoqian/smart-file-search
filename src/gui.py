@@ -763,7 +763,6 @@ class AIAnswerArea(QTextEdit):
         self.setFont(QFont("Microsoft YaHei", 11))
         self.setPlaceholderText("AI 回答将显示在这里...")
         self.setMinimumHeight(150)
-        self.setOpenExternalLinks(True)
 
         # 设置样式
         self.setStyleSheet("""
