@@ -139,11 +139,19 @@ class FileIndexer:
         except:
             return False, False
 
+        # 检查隐藏文件
+        if self.config.advanced.ignore_hidden and path_obj.name.startswith('.'):
+            return False, False
+
         # 获取过滤模式（默认为排除模式）
         filter_mode = getattr(self.config.index, 'filter_mode', 'exclude')
 
+        # 检查扩展名是否支持解析内容
+        ext = path_obj.suffix.lower()
+        ext_supported = ext in self.config.index.supported_extensions
+
         if filter_mode == 'include':
-            # 包含模式：只索引匹配包含模式的文件
+            # 包含模式
             include_patterns = getattr(self.config.index, 'include_patterns', [])
             if include_patterns:
                 matched = False
@@ -158,8 +166,16 @@ class FileIndexer:
                     if fnmatch.fnmatch(str(path_obj.parent), f"*{pattern}*"):
                         matched = True
                         break
-                if not matched:
-                    return False, False
+
+                if matched:
+                    # 匹配包含模式：根据扩展名决定是否解析内容
+                    return True, ext_supported
+                else:
+                    # 不匹配包含模式：只索引元数据，不解析内容
+                    return True, False
+            else:
+                # 没有配置包含模式，根据扩展名决定
+                return True, ext_supported
         else:
             # 排除模式：排除匹配排除模式的文件
             for pattern in self.config.index.exclude_patterns:
@@ -168,18 +184,8 @@ class FileIndexer:
                 if fnmatch.fnmatch(str(path_obj), pattern):
                     return False, False
 
-        # 检查隐藏文件
-        if self.config.advanced.ignore_hidden and path_obj.name.startswith('.'):
-            return False, False
-
-        # 检查扩展名是否支持
-        ext = path_obj.suffix.lower()
-        if ext in self.config.index.supported_extensions:
-            # 支持的扩展名：索引并解析内容
-            return True, True
-        else:
-            # 不支持的扩展名：只索引元数据，不解析内容
-            return True, False
+            # 根据扩展名决定是否解析内容
+            return True, ext_supported
     
     def _index_file(self, file_path: str) -> Optional[Dict[str, Any]]:
         """
