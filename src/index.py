@@ -119,7 +119,7 @@ class FileIndexer:
             self.logger.error(f"打开索引失败: {e}")
             raise
     
-    def _should_index(self, file_path: str) -> bool:
+    def _should_index(self, file_path: str) -> Tuple[bool, bool]:
         """
         检查是否应该索引该文件
 
@@ -127,7 +127,7 @@ class FileIndexer:
             file_path: 文件路径
 
         Returns:
-            是否应该索引
+            (是否应该索引, 是否解析内容)
         """
         path_obj = Path(file_path)
 
@@ -135,14 +135,9 @@ class FileIndexer:
         try:
             file_size = path_obj.stat().st_size
             if file_size > self.config.index.max_file_size:
-                return False
+                return False, False
         except:
-            return False
-
-        # 检查扩展名
-        ext = path_obj.suffix.lower()
-        if ext not in self.config.index.supported_extensions:
-            return False
+            return False, False
 
         # 获取过滤模式（默认为排除模式）
         filter_mode = getattr(self.config.index, 'filter_mode', 'exclude')
@@ -164,24 +159,27 @@ class FileIndexer:
                         matched = True
                         break
                 if not matched:
-                    return False
+                    return False, False
         else:
             # 排除模式：排除匹配排除模式的文件
             for pattern in self.config.index.exclude_patterns:
                 if fnmatch.fnmatch(path_obj.name, pattern):
-                    return False
+                    return False, False
                 if fnmatch.fnmatch(str(path_obj), pattern):
-                    return False
+                    return False, False
 
         # 检查隐藏文件
         if self.config.advanced.ignore_hidden and path_obj.name.startswith('.'):
-            return False
+            return False, False
 
-        # 检查是否支持解析
-        if not self.parser.is_supported(file_path):
-            return False
-
-        return True
+        # 检查扩展名是否支持
+        ext = path_obj.suffix.lower()
+        if ext in self.config.index.supported_extensions:
+            # 支持的扩展名：索引并解析内容
+            return True, True
+        else:
+            # 不支持的扩展名：只索引元数据，不解析内容
+            return True, False
     
     def _index_file(self, file_path: str) -> Optional[Dict[str, Any]]:
         """
@@ -194,7 +192,8 @@ class FileIndexer:
             索引文档字典，如果失败则返回 None
         """
         try:
-            if not self._should_index(file_path):
+            should_index, parse_content = self._should_index(file_path)
+            if not should_index:
                 return None
 
             # 获取文件元数据
@@ -202,10 +201,14 @@ class FileIndexer:
             if metadata is None:
                 return None
 
-            # 解析文件内容
-            content = self.parser.parse(file_path)
-            if content is None:
-                # 仍然索引元数据，但没有内容
+            # 根据是否支持解析来决定是否读取内容
+            if parse_content:
+                # 支持的扩展名：解析文件内容
+                content = self.parser.parse(file_path)
+                if content is None:
+                    content = ""
+            else:
+                # 不支持的扩展名：不解析内容，只记录元数据
                 content = ""
 
             metadata.content = content
@@ -720,12 +723,8 @@ class FileIndexer:
                                     delete_reason = f"符合排除规则: {pattern}"
                                     break
 
-                        # 检查3: 扩展名是否支持
-                        if not should_delete:
-                            ext = path_obj.suffix.lower()
-                            if ext not in self.config.index.supported_extensions:
-                                should_delete = True
-                                delete_reason = f"扩展名不支持: {ext}"
+                        # 注意：不再因扩展名不支持而删除索引
+                        # 现在会保留所有文件的元数据，即使不支持解析内容
 
                     if should_delete:
                         files_to_delete.append((path, delete_reason))
