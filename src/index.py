@@ -171,8 +171,8 @@ class FileIndexer:
                     # 匹配包含模式：根据扩展名决定是否解析内容
                     return True, ext_supported
                 else:
-                    # 不匹配包含模式：只索引元数据，不解析内容
-                    return True, False
+                    # 不匹配包含模式：支持扩展名则解析内容，不支持则只索引元数据
+                    return True, ext_supported
             else:
                 # 没有配置包含模式，根据扩展名决定
                 return True, ext_supported
